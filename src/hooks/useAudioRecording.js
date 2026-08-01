@@ -553,7 +553,8 @@ export const useAudioRecording = (toast, options = {}) => {
           }
 
           const isStreaming = result.source?.includes("streaming");
-          const { autoPasteEnabled, keepTranscriptionInClipboard } = getSettings();
+          const { autoPasteEnabled, keepTranscriptionInClipboard, pressEnterAfterPaste } =
+            getSettings();
 
           const persistencePromise = audioManagerRef.current
             .saveTranscription(result.text, result.rawText ?? result.text, {
@@ -659,6 +660,7 @@ export const useAudioRecording = (toast, options = {}) => {
                 ...(isStreaming ? { fromStreaming: true } : {}),
                 restoreClipboard: !keepTranscriptionInClipboard,
                 allowClipboardFallback: isAccessibilitySkipped(),
+                pressEnterAfterPaste,
               });
             }
             logger.info(

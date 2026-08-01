@@ -1114,6 +1114,7 @@ declare global {
           fromStreaming?: boolean;
           restoreClipboard?: boolean;
           allowClipboardFallback?: boolean;
+          pressEnterAfterPaste?: boolean;
         }
       ) => Promise<{ success: true; pasted: boolean }>;
       captureSelectedText?: (options?: { probeEditable?: boolean }) => Promise<
