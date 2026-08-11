@@ -2276,7 +2276,19 @@
           }
         }
       },
-      "meetingEnterpriseOnly": "贵组织仅允许企业云转录，暂不支持会议录音。"
+      "meetingEnterpriseOnly": "贵组织仅允许企业云转录，暂不支持会议录音。",
+      "idleUnload": {
+        "title": "闲置卸载",
+        "description": "在一段时间无操作后自动停止本地 Whisper 服务器，以释放 RAM 和 VRAM",
+        "label": "卸载时间",
+        "options": {
+          "0": "从不",
+          "300000": "5 分钟",
+          "900000": "15 分钟",
+          "1800000": "30 分钟",
+          "3600000": "60 分钟"
+        }
+      }
     },
     "intelligence": {
       "gpuDevice": {
