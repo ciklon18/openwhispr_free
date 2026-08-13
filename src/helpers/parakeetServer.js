@@ -213,6 +213,10 @@ class ParakeetServerManager {
         segments.push(samples.subarray(offset, offset + maxSegmentBytes));
       }
 
+      // A long enough recording can cross an idle-unload timeout between segments;
+      // start() is a no-op when already running, so this is cheap the common case.
+      await this.wsServer.start(modelName, modelDir, runtime, resolveModelLanguage(modelName, language));
+
       const decodeSegment = async (segment, segmentIndex) => {
         throwIfAborted();
         const first = await this.wsServer.transcribe(segment, SAMPLE_RATE, { signal });
