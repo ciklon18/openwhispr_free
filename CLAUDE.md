@@ -110,6 +110,7 @@ OpenWhispr is an Electron-based desktop dictation application that uses whisper.
   - On Windows, read the state from `executableWillLaunchAtLogin`, never from `openAtLogin`: `openAtLogin` only compares the `Run` value against the current executable and args and ignores the `StartupApproved` key that Task Manager and Settings write when a user disables a startup app
   - Reads and writes must pass identical `args`, or `openAtLogin` always reports false
   - `getRelaunchOptions()` and `getRelaunchWaiter()` shape the `relaunch-app` IPC that follows `cleanup-app` (Reset app data; Delete account with device erase): the relaunch drops `--hidden` and any cold-start deep link, and an AppImage or Windows portable build is started again from its on-disk file (`$APPIMAGE`, `$PORTABLE_EXECUTABLE_FILE`) by a detached waiter, since both run from a directory that disappears when the app exits. The handler in `ipcHandlers.js` only quits under `npm run dev` and, on macOS with an update Squirrel already holds, hands the restart to the updater
+  - `getLoginItemLookupPath()` supplies the Windows `path`, **quoted**. Electron parses both that path and every `Run` value with `CommandLine::FromString` and compares the parsed programs, so an unquoted `C:\Program Files\...` truncates to `C:\Program` and compares equal to any other unquoted `Run` entry under `C:\Program Files`. Unquoted, `executableWillLaunchAtLogin` reports an unrelated app's startup entry as ours, stays true after our own entry is deleted, and returns true for a path that does not exist. Passing no `path` is not a way out: Electron then falls back to the equally unquoted `GetProcessExecPath()`
 - **linuxAutostart.js**: Launch-at-login on Linux via an XDG autostart entry
   - `app.setLoginItemSettings()` is a no-op on Linux, so the entry is written directly to `$XDG_CONFIG_HOME/autostart/open-whispr.desktop`, matching the executable name electron-builder packages under
   - `Exec` resolves from `$APPIMAGE` first: `process.execPath` is the ephemeral AppImage FUSE mount
@@ -881,6 +882,7 @@ UI icons come from `src/components/icons/` (vendored Nucleo core outline compone
 - whisper.cpp bundled for x64
 - **Launch at login**: `HKCU\...\Run` entry written by Electron, named after the AppUserModelId, carrying `--hidden` so a login launch goes to the tray
   - Read the state from `executableWillLaunchAtLogin`; `openAtLogin` misses a startup app disabled from Task Manager or Settings
+  - Pass the executable path to `getLoginItemSettings()` **quoted** (`getLoginItemLookupPath()`). Unquoted, Electron truncates it at the first space and matches unrelated `Run` entries, which pins the launch-at-login toggle on and makes `syncAutoStartEntry()` recreate the entry on every launch
   - `resources/nsis/installer.nsh` removes the `Run` and `StartupApproved\Run` values on uninstall (but not on update), which Electron itself never cleans up
 - **Push-to-Talk**: Native key listener binary (`windows-key-listener.exe`) enables true push-to-talk
   - Uses Windows Low-Level Keyboard Hook (`WH_KEYBOARD_LL`)
