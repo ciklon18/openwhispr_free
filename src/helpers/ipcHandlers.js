@@ -678,6 +678,7 @@ class IPCHandlers {
     // Warm the OS default mic answer before the first hotkey press (~2s on Windows).
     resolveSystemDefaultMicrophone();
     this.setupHandlers();
+    this._recoverOrphanedRecordings();
     // Lives for the app's lifetime; IPCHandlers has no teardown path.
     tokenStore.subscribe(({ generation, token }) => {
       this.enterpriseIdentityManager?.clear();
@@ -1196,6 +1197,25 @@ class IPCHandlers {
       }
     } catch (error) {
       debugLogger.error("Retention cleanup failed", { error: error.message }, "audio-storage");
+    }
+  }
+
+  _recoverOrphanedRecordings() {
+    try {
+      const recovered = this.audioStorageManager.recoverOrphanedRecordings(this.databaseManager);
+      if (recovered && recovered.length > 0) {
+        setImmediate(() => {
+          for (const item of recovered) {
+            broadcastToWindows("transcription-added", item);
+          }
+        });
+      }
+    } catch (error) {
+      debugLogger.error(
+        "Failed to recover orphaned recordings",
+        { error: error.message },
+        "audio-storage"
+      );
     }
   }
 
@@ -1772,6 +1792,19 @@ class IPCHandlers {
 
     ipcMain.handle("get-audio-storage-usage", async () => {
       return this.audioStorageManager.getStorageUsage();
+    });
+
+    // Recording spool handlers for crash recovery (#2073)
+    ipcMain.handle("start-recording-spool", async (_event, sessionId, mimeType) => {
+      return this.audioStorageManager.startRecordingSpool(sessionId, mimeType);
+    });
+
+    ipcMain.on("append-recording-spool-chunk", (_event, sessionId, chunk) => {
+      this.audioStorageManager.appendRecordingSpoolChunk(sessionId, chunk);
+    });
+
+    ipcMain.handle("finish-recording-spool", async (_event, sessionId) => {
+      return this.audioStorageManager.finishRecordingSpool(sessionId);
     });
 
     ipcMain.on(

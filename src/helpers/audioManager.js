@@ -524,6 +524,7 @@ class AudioManager {
   constructor() {
     this.mediaRecorder = null;
     this.audioChunks = [];
+    this._spoolSessionId = null;
     this.isRecording = false;
     this.isProcessing = false;
     this.onStateChange = null;
@@ -670,6 +671,43 @@ class AudioManager {
       onRecovered: (replacement, previous) => this.replaceActiveMic(replacement, previous),
       onStatusChange: (status) => this.setMicCaptureStatus(status),
     });
+  }
+
+  _startAudioSpool(mimeType) {
+    try {
+      this._spoolSessionId = crypto.randomUUID();
+      window.electronAPI?.startRecordingSpool?.(this._spoolSessionId, mimeType || "audio/webm");
+    } catch (error) {
+      logger.warn("Failed to start audio spool", { error: error.message }, "audio");
+      this._spoolSessionId = null;
+    }
+  }
+
+  _appendAudioSpoolChunk(chunk) {
+    if (!this._spoolSessionId || !chunk || chunk.size === 0) return;
+    const sessionId = this._spoolSessionId;
+    chunk
+      .arrayBuffer()
+      .then((buffer) => {
+        if (this._spoolSessionId === sessionId) {
+          window.electronAPI?.appendRecordingSpoolChunk?.(sessionId, buffer);
+        }
+      })
+      .catch((err) => {
+        logger.warn("Failed to read audio chunk for spool", { error: err.message }, "audio");
+      });
+  }
+
+  _finishAudioSpool() {
+    if (this._spoolSessionId) {
+      const sessionId = this._spoolSessionId;
+      this._spoolSessionId = null;
+      try {
+        window.electronAPI?.finishRecordingSpool?.(sessionId);
+      } catch (error) {
+        logger.warn("Failed to finish audio spool", { error: error.message }, "audio");
+      }
+    }
   }
 
   getWorkletBlobUrl() {
@@ -1551,10 +1589,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.audioChunks = segmentChunks;
     this.recordingMimeType = recorder.mimeType || "audio/webm";
 
+    if (!this._rotatingBatchRecorder) {
+      this._startAudioSpool(this.recordingMimeType);
+      if (segmentChunks.length > 0) {
+        for (const chunk of segmentChunks) {
+          this._appendAudioSpoolChunk(chunk);
+        }
+      }
+    }
+
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
         this._receivedAudioData = true;
         segmentChunks.push(event.data);
+        this._appendAudioSpoolChunk(event.data);
       }
     };
 
@@ -1650,6 +1698,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       receivedAudioData: this._receivedAudioData,
     });
     if (!recordingCheck.usable) {
+      this._finishAudioSpool();
       logger.info(
         "Dropping degenerate recording before transcription",
         {
@@ -1842,6 +1891,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   resetDiscardedBatchRecordingState() {
+    this._finishAudioSpool();
     this.teardownSpeechGate();
     this._localSpeechGateState = null;
 
@@ -1927,6 +1977,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   cancelProcessing() {
+    this._finishAudioSpool();
     if (this.isProcessing) {
       this._processingCancellationGeneration = (this._processingCancellationGeneration ?? 0) + 1;
       this._requestStreamingCancellation();
@@ -1982,6 +2033,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         },
         "audio"
       );
+      this._finishAudioSpool();
       if (!this._settleProcessingPipeline(pipeline)) return;
       this.onTranscriptionComplete?.({ success: true, text: "" });
       return;
@@ -2146,6 +2198,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         }
       }
     } finally {
+      this._finishAudioSpool();
       const shouldNotifyNoAudio =
         !wasCancelled() && noAudioDetected && this._activeProcessingPipeline === pipeline;
       this._settleProcessingPipeline(pipeline);
@@ -4010,6 +4063,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   ) {
     const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
     if (!dataRetentionEnabled) {
+      this._finishAudioSpool();
       logger.debug("Skipping transcription save — data retention disabled", {}, "audio");
       this.lastAudioBlob = null;
       this.lastAudioMetadata = null;
@@ -4068,12 +4122,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return true;
     } catch (error) {
       return false;
+    } finally {
+      this._finishAudioSpool();
     }
   }
 
   async saveFailedTranscription(errorMessage, errorCode = null, metadata = {}) {
     const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
     if (!dataRetentionEnabled) {
+      this._finishAudioSpool();
       logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
       this.lastAudioBlob = null;
       this.lastAudioMetadata = null;
@@ -4125,6 +4182,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         },
         "audio"
       );
+    } finally {
+      this._finishAudioSpool();
     }
   }
 
@@ -4169,6 +4228,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           );
         }
       }
+    } finally {
+      this._finishAudioSpool();
     }
   }
 
@@ -4355,8 +4416,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     try {
       const chunks = [];
       const recorder = new MediaRecorder(stream);
+      if (!this._spoolSessionId) {
+        this._startAudioSpool(recorder.mimeType || "audio/webm");
+      }
       recorder.ondataavailable = (event) => {
-        if (event.data?.size > 0) chunks.push(event.data);
+        if (event.data?.size > 0) {
+          chunks.push(event.data);
+          this._appendAudioSpoolChunk(event.data);
+        }
       };
       recorder.start(RECORDING_TIMESLICE_MS);
       this.streamingFallbackRecorder = recorder;
@@ -4850,6 +4917,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     const sessionId = this._activeStreamingSessionId;
     const cancelPromise = (async () => {
+      this._finishAudioSpool();
       this._requestStreamingCancellation();
       this.stopRequestedDuringStreamingStart = false;
       this.recordingStartTime = null;
