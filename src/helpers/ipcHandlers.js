@@ -1435,6 +1435,11 @@ class IPCHandlers {
     });
 
     ipcMain.handle("test-provider-connection", async (_event, config) => {
+      const { ENTERPRISE_SECRET_FIELDS } = require("./enterpriseProviderErrors");
+      config = { ...config };
+      for (const key of ["apiKey", "clientId", "clientSecret", ...ENTERPRISE_SECRET_FIELDS]) {
+        if (config[key]) config[key] = this.environmentManager.resolveSecretRef(config[key]);
+      }
       if (config?.provider === "corti" && config?.scope === "transcription") {
         try {
           const clientId = String(config.clientId || "").trim();
@@ -1570,9 +1575,13 @@ class IPCHandlers {
     });
 
     for (const k of BYOK_API_KEYS) {
-      ipcMain.handle(`get-${k.base}-key`, () => this.environmentManager[k.get]());
+      ipcMain.handle(`get-${k.base}-key`, () => this.environmentManager.getRawKey(k.env));
       ipcMain.handle(`save-${k.base}-key`, (event, key) => this.environmentManager[k.save](key));
     }
+
+    ipcMain.handle("resolve-secret-ref", (_event, value) => {
+      return this.environmentManager.resolveSecretRef(value);
+    });
 
     ipcMain.handle("db-save-transcription", async (event, text, rawText, options) => {
       const result = this.databaseManager.saveTranscription(text, rawText, options);
@@ -4614,7 +4623,7 @@ class IPCHandlers {
     );
 
     ipcMain.handle("get-corti-client-id", async () => {
-      return this.environmentManager.getCortiClientId();
+      return this.environmentManager.getRawKey("CORTI_CLIENT_ID");
     });
 
     ipcMain.handle("save-corti-client-id", async (event, key) => {
@@ -4622,7 +4631,7 @@ class IPCHandlers {
     });
 
     ipcMain.handle("get-corti-client-secret", async () => {
-      return this.environmentManager.getCortiClientSecret();
+      return this.environmentManager.getRawKey("CORTI_CLIENT_SECRET");
     });
 
     ipcMain.handle("save-corti-client-secret", async (event, key) => {
@@ -4686,7 +4695,7 @@ class IPCHandlers {
     );
 
     ipcMain.handle("get-custom-transcription-key", async () => {
-      return this.environmentManager.getCustomTranscriptionKey();
+      return this.environmentManager.getRawKey("CUSTOM_TRANSCRIPTION_API_KEY");
     });
 
     ipcMain.handle("save-custom-transcription-key", async (event, key) => {
@@ -4694,7 +4703,7 @@ class IPCHandlers {
     });
 
     ipcMain.handle("get-cleanup-custom-key", async () => {
-      return this.environmentManager.getCleanupCustomKey();
+      return this.environmentManager.getRawCleanupCustomKey();
     });
 
     ipcMain.handle("save-cleanup-custom-key", async (event, key) => {
@@ -4715,19 +4724,19 @@ class IPCHandlers {
       return this.environmentManager.saveBedrockProfile(value);
     });
     ipcMain.handle("get-bedrock-access-key-id", async () => {
-      return this.environmentManager.getBedrockAccessKeyId();
+      return this.environmentManager.getRawKey("BEDROCK_ACCESS_KEY_ID");
     });
     ipcMain.handle("save-bedrock-access-key-id", async (event, key) => {
       return this.environmentManager.saveBedrockAccessKeyId(key);
     });
     ipcMain.handle("get-bedrock-secret-access-key", async () => {
-      return this.environmentManager.getBedrockSecretAccessKey();
+      return this.environmentManager.getRawKey("BEDROCK_SECRET_ACCESS_KEY");
     });
     ipcMain.handle("save-bedrock-secret-access-key", async (event, key) => {
       return this.environmentManager.saveBedrockSecretAccessKey(key);
     });
     ipcMain.handle("get-bedrock-session-token", async () => {
-      return this.environmentManager.getBedrockSessionToken();
+      return this.environmentManager.getRawKey("BEDROCK_SESSION_TOKEN");
     });
     ipcMain.handle("save-bedrock-session-token", async (event, key) => {
       return this.environmentManager.saveBedrockSessionToken(key);
@@ -4739,7 +4748,7 @@ class IPCHandlers {
       return this.environmentManager.saveAzureEndpoint(value);
     });
     ipcMain.handle("get-azure-api-key", async () => {
-      return this.environmentManager.getAzureApiKey();
+      return this.environmentManager.getRawKey("AZURE_OPENAI_API_KEY");
     });
     ipcMain.handle("save-azure-api-key", async (event, key) => {
       return this.environmentManager.saveAzureApiKey(key);
@@ -4769,7 +4778,7 @@ class IPCHandlers {
       return this.environmentManager.saveVertexLocation(value);
     });
     ipcMain.handle("get-vertex-api-key", async () => {
-      return this.environmentManager.getVertexApiKey();
+      return this.environmentManager.getRawKey("VERTEX_API_KEY");
     });
     ipcMain.handle("save-vertex-api-key", async (event, key) => {
       return this.environmentManager.saveVertexApiKey(key);
@@ -6078,12 +6087,13 @@ class IPCHandlers {
       logger: debugLogger,
     });
     const resolveEnterpriseRuntime = async (event, provider, model, config = {}) => {
-      const manual = {
+      const { resolveManualEnterpriseRuntime } = require("./enterpriseProviderErrors");
+      const manual = resolveManualEnterpriseRuntime(
+        config,
         provider,
         model,
-        apiKey: config.apiKey || "",
-        enterprise: require("./enterpriseProviderErrors").pickEnterpriseConfig(config),
-      };
+        (value) => this.environmentManager.resolveSecretRef(value)
+      );
       const context = config.managedContext;
       if (!context) return manual;
       const authHeaders = await getAuthHeader(event);
@@ -9841,7 +9851,7 @@ class IPCHandlers {
         event,
         {
           filePath,
-          apiKey,
+          apiKey: rawApiKey,
           baseUrl,
           model,
           diarize,
@@ -9857,7 +9867,11 @@ class IPCHandlers {
         }
       ) => {
         const fs = require("fs");
+        let apiKey = "";
         try {
+          apiKey = require("./envRef.cjs").usableSecret(
+            this.environmentManager.resolveSecretRef(rawApiKey)
+          );
           if (typeof filePath !== "string") {
             return { success: false, error: "Invalid file path" };
           }
