@@ -1,7 +1,7 @@
 import modelDataRaw from "./modelRegistryData.json";
 import { isCloudCleanupMode, getSettings } from "../stores/settingsStore";
 import { readCachedTinfoilModels } from "./tinfoilModelCache";
-import { filterMeetingStreamingProviders } from "../helpers/meetingTranscriptionRouting";
+
 import type { InferenceMode } from "../types/electron";
 
 export interface ModelDefinition {
@@ -439,11 +439,6 @@ export function getStreamingTranscriptionProviders(): TranscriptionProviderData[
     .filter((p) => p.models.length > 0);
 }
 
-// Streaming providers note recording can actually run (see
-// meetingTranscriptionRouting.MEETING_STREAMING_PROVIDER_IDS).
-export function getMeetingStreamingTranscriptionProviders(): TranscriptionProviderData[] {
-  return filterMeetingStreamingProviders(getStreamingTranscriptionProviders());
-}
 
 export function getTranscriptionProvider(
   providerId: string

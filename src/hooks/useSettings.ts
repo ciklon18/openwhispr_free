@@ -60,9 +60,9 @@ export interface HotkeySettings {
   /** Hotkeys actually registered by the main process (may be a subset of
    * dictationKey, e.g. primary-only on GNOME/KDE/Hyprland). Display-only. */
   activeDictationKey: string | null;
-  meetingKey: string;
+
   voiceAgentKey: string;
-  meetingHotkeyLayoutMode: "side-panel" | "full-width";
+
   activationMode: "tap" | "push";
 }
 
@@ -321,10 +321,9 @@ function useSettingsInternal() {
     deepgramApiKey: store.deepgramApiKey,
     assemblyaiApiKey: store.assemblyaiApiKey,
     dictationKey: store.dictationKey,
-    meetingKey: store.meetingKey,
+
     voiceAgentKey: store.voiceAgentKey,
-    meetingHotkeyLayoutMode: store.meetingHotkeyLayoutMode,
-    setMeetingHotkeyLayoutMode: store.setMeetingHotkeyLayoutMode,
+
     theme: store.theme,
     setUseLocalWhisper: store.setUseLocalWhisper,
     setWhisperModel: store.setWhisperModel,
@@ -365,7 +364,7 @@ function useSettingsInternal() {
     cleanupCustomApiKey: store.cleanupCustomApiKey,
     setCleanupCustomApiKey: store.setCleanupCustomApiKey,
     setDictationKey: store.setDictationKey,
-    setMeetingKey: store.setMeetingKey,
+
     setVoiceAgentKey: store.setVoiceAgentKey,
     onboardingUseCases: store.onboardingUseCases,
     setOnboardingUseCases: store.setOnboardingUseCases,
@@ -378,10 +377,7 @@ function useSettingsInternal() {
     setActivationMode: store.setActivationMode,
     notificationsEnabled: store.notificationsEnabled,
     setNotificationsEnabled: store.setNotificationsEnabled,
-    notifyMeetingDetection: store.notifyMeetingDetection,
-    setNotifyMeetingDetection: store.setNotifyMeetingDetection,
-    notifyCalendarReminders: store.notifyCalendarReminders,
-    setNotifyCalendarReminders: store.setNotifyCalendarReminders,
+
     autoUpdatesEnabled: store.autoUpdatesEnabled,
     setAutoUpdatesEnabled: store.setAutoUpdatesEnabled,
     audioCuesEnabled: store.audioCuesEnabled,
@@ -421,8 +417,7 @@ function useSettingsInternal() {
     setDictationSileroEnabled: store.setDictationSileroEnabled,
     noteRecordingSileroEnabled: store.noteRecordingSileroEnabled,
     setNoteRecordingSileroEnabled: store.setNoteRecordingSileroEnabled,
-    meetingSileroEnabled: store.meetingSileroEnabled,
-    setMeetingSileroEnabled: store.setMeetingSileroEnabled,
+
     whisperVadThreshold: store.whisperVadThreshold,
     setWhisperVadThreshold: store.setWhisperVadThreshold,
     whisperVadMinSpeechDurationMs: store.whisperVadMinSpeechDurationMs,

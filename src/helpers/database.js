@@ -5,7 +5,7 @@ const { randomUUID } = require("crypto");
 const debugLogger = require("./debugLogger");
 const { buildNoteSearchQuery } = require("./noteSearch");
 const { normalizeStoredSpeakerCount } = require("./speakerCount");
-const { parseEventTime } = require("./calendarAvailability");
+
 // An explicit zone marks an instant this app captured at dictation time. A
 // naive timestamp may instead be a sync artifact: upsertTranscriptionFromCloud
 // keeps the cloud created_at but lets timestamp default to the local pull, so
@@ -4569,67 +4569,6 @@ class DatabaseManager {
         .all(...params);
     } catch (error) {
       debugLogger.error("Error searching notes", { error: error.message }, "database");
-      throw error;
-    }
-  }
-
-  getUpcomingEvents(windowMinutes = 1440) {
-    try {
-      if (!this.db) throw new Error("Database not initialized");
-      return this.db
-        .prepare(
-          dedupedEventsQuery(
-            "((datetime(start_time) > datetime('now') AND datetime(start_time) <= datetime('now', '+' || ? || ' minutes')) OR (datetime(start_time) <= datetime('now') AND datetime(end_time) > datetime('now'))) AND is_all_day = 0 AND status IN ('confirmed', 'tentative')"
-          )
-        )
-        .all(windowMinutes)
-        .map(stripDedupeColumn);
-    } catch (error) {
-      debugLogger.error("Error getting upcoming events", { error: error.message }, "gcal");
-      throw error;
-    }
-  }
-
-  getCalendarEventsInRange(start, end, providers) {
-    try {
-      if (!this.db) throw new Error("Database not initialized");
-      const rangeStart = Date.parse(start);
-      const rangeEnd = Date.parse(end);
-      if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd <= rangeStart) {
-        throw new RangeError("Invalid calendar event range");
-      }
-
-      const selectedProviders = [...new Set(providers)].filter((provider) =>
-        AVAILABILITY_PROVIDERS.has(provider)
-      );
-      if (selectedProviders.length === 0) return [];
-      const placeholders = selectedProviders.map(() => "?").join(", ");
-      const events = this.db
-        .prepare(
-          dedupedEventsQuery(
-            `provider IN (${placeholders}) AND status IN ('confirmed', 'tentative') AND ${SELECTED_CALENDAR_EVENT_FILTER}`
-          )
-        )
-        .all(...selectedProviders)
-        .map(stripDedupeColumn);
-
-      return events.filter((event) => {
-        const isAllDay = event.is_all_day === true || event.is_all_day === 1;
-        const eventStart = parseEventTime(event.start_time, isAllDay);
-        const eventEnd = parseEventTime(event.end_time, isAllDay);
-        return (
-          Number.isFinite(eventStart) &&
-          Number.isFinite(eventEnd) &&
-          eventStart < rangeEnd &&
-          eventEnd > rangeStart
-        );
-      });
-    } catch (error) {
-      debugLogger.error(
-        "Error getting calendar events in range",
-        { error: error.message },
-        "calendar"
-      );
       throw error;
     }
   }

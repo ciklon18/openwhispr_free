@@ -472,15 +472,6 @@ class EnvironmentManager {
     return result;
   }
 
-  getMeetingKey() {
-    return this._getKey("MEETING_KEY");
-  }
-
-  saveMeetingKey(key) {
-    const result = this._saveKey("MEETING_KEY", key);
-    this.saveAllKeysToEnvFile().catch(() => {});
-    return result;
-  }
 
   getActivationMode() {
     const mode = this._getKey("ACTIVATION_MODE");

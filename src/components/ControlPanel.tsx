@@ -41,16 +41,23 @@ import {
   isUpdateRequiredByOrg,
 } from "../stores/policyRules";
 import { getManagedTranscriptionResolution } from "../services/managedTranscription";
-import {
-  useIsMeetingMode,
-  useIsNarrowWindow,
-  useMeetingRecordingStore,
-} from "../stores/meetingRecordingStore";
 import ControlPanelSidebar from "./ControlPanelSidebar";
 import ControlPanelTopBar from "./ControlPanelTopBar";
 import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
-import MeetingRecordingMount from "./MeetingRecordingMount";
-import MeetingRecordingPill from "./notes/MeetingRecordingPill";
+
+const SIDE_PANEL_BREAKPOINT_PX = 1024;
+
+function useIsNarrowWindow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < SIDE_PANEL_BREAKPOINT_PX
+  );
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < SIDE_PANEL_BREAKPOINT_PX);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return narrow;
+}
 
 import { getCachedPlatform } from "../utils/platform";
 import { isAccessibilitySkipped } from "../utils/permissions";
@@ -137,18 +144,10 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     hidePeek: hideSidebarPeek,
     leaveToggle: leaveSidebarToggle,
   } = useCollapsibleSidebar();
-  const isMeetingMode = useIsMeetingMode();
   const isNarrowWindow = useIsNarrowWindow();
   const activeNoteId = useActiveNoteId();
   const isSidePanelLayout =
-    isMeetingMode || (isNarrowWindow && activeView === "personal-notes" && activeNoteId != null);
-  const recordingNoteId = useMeetingRecordingStore((s) => s.recordingNoteId);
-  const recordingFolderId = useMeetingRecordingStore((s) => s.recordingFolderId);
-  const [meetingRecordingRequest, setMeetingRecordingRequest] = useState<{
-    noteId: number;
-    folderId: number;
-    event: any;
-  } | null>(null);
+    isNarrowWindow && activeView === "personal-notes" && activeNoteId != null;
   const [topBarActions, setTopBarActions] = useState<HTMLDivElement | null>(null);
   const [gpuBannerDismissed, setGpuBannerDismissed] = useState(
     () => localStorage.getItem("gpuBannerDismissedUnified") === "true"
@@ -353,30 +352,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     }
   }, [authLoaded, isSignedIn]);
 
-  useEffect(() => {
-    const drain = async () => {
-      const data = await window.electronAPI?.getPendingMeetingNoteNavigation?.();
-      if (!data) return;
-      setActiveFolderId(data.folderId);
-      setActiveNoteId(data.noteId);
-      setActiveView("personal-notes");
-      setMeetingRecordingRequest({
-        noteId: data.noteId,
-        folderId: data.folderId,
-        event: data.event,
-      });
-      initializeNotes(null, 50, data.folderId);
-      if (
-        data.trigger === "hotkey" &&
-        useSettingsStore.getState().meetingHotkeyLayoutMode === "side-panel"
-      ) {
-        window.electronAPI?.snapToMeetingMode?.();
-      }
-    };
-    drain();
-    const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(drain);
-    return () => cleanup?.();
-  }, []);
 
   useEffect(() => {
     const drain = async () => {
@@ -428,10 +403,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     fetchStreamingProviders();
   }, []);
 
-  const handleMeetingRecordingRequestHandled = useCallback(
-    () => setMeetingRecordingRequest(null),
-    []
-  );
 
   // Set by the auto-end card's summary action, which routes through the note
   // navigation queue so the panel is surfaced and the note opened first.
@@ -449,12 +420,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     }
   }, [activeNoteId, activeView, summaryRequest]);
 
-  // The side-panel layout is shared by meeting mode and by a note opened in a
-  // narrow window, so leaving it means different things in each case.
   const handleExitSidePanel = useCallback(() => {
-    if (isMeetingMode) window.electronAPI?.restoreFromMeetingMode?.();
-    else setActiveNoteId(null);
-  }, [isMeetingMode]);
+    setActiveNoteId(null);
+  }, []);
 
   const copyToClipboard = useCallback(
     async (text: string) => {
@@ -858,16 +826,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   return (
     <div className="h-screen bg-surface-window flex flex-col">
-      <MeetingRecordingMount />
-      <MeetingRecordingPill
-        activeView={activeView}
-        activeNoteId={activeNoteId}
-        onReturnToNote={() => {
-          setActiveView("personal-notes");
-          setActiveFolderId(recordingFolderId);
-          setActiveNoteId(recordingNoteId);
-        }}
-      />
+
       <ConfirmDialog
         open={confirmDialog.open}
         onOpenChange={hideConfirmDialog}
@@ -1156,7 +1115,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                     setSettingsSection(section);
                     setShowSettings(true);
                   }}
-                  onOpenIntegrations={() => setActiveView("integrations")}
                 />
               )}
               {activeView === "insights" && (
@@ -1181,8 +1139,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                       setSettingsSection(section);
                       setShowSettings(true);
                     }}
-                    meetingRecordingRequest={meetingRecordingRequest}
-                    onMeetingRecordingRequestHandled={handleMeetingRecordingRequestHandled}
+
                     summaryRequest={summaryRequest}
                     onSummaryRequestHandled={handleSummaryRequestHandled}
                     invitationEntry={invitationNotesEntry}

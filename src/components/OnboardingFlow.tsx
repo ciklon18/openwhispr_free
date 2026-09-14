@@ -10,7 +10,7 @@ import LanguageSelectionStep from "./onboarding/LanguageSelectionStep";
 import ShortcutSetupStep from "./onboarding/ShortcutSetupStep";
 import AssistantHotkeyPreview from "./onboarding/AssistantHotkeyPreview";
 import DemoStep from "./onboarding/DemoStep";
-import CalendarConnectionsStep from "./onboarding/CalendarConnectionsStep";
+
 import SetupChoiceStep from "./onboarding/SetupChoiceStep";
 import { ByokProviderStep, LocalModelSetupStep } from "./onboarding/ProviderSetupStep";
 import { RequiredModelDownloadStep } from "./onboarding/RequiredModelDownloadStep";
@@ -252,10 +252,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     session.authPath === "account" &&
     (!workspacesLoaded ||
       (!activeWorkspace && skipSetupChoiceForEnterprise && Boolean(enterpriseWorkspace)));
-  const hasConnectedCalendar =
-    settingsStore.gcalAccounts.length > 0 ||
-    settingsStore.mcalAccounts.length > 0 ||
-    (platform === "darwin" && settingsStore.appleCalendarConnected);
+  const hasConnectedCalendar = false;
 
   // The setting turns on only once the permission is actually granted, so an
   // Enable click whose System Settings grant is abandoned can't leave screen
@@ -1108,7 +1105,6 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 so the content scrolls here instead — px-1/pb-1 keeps focus rings
                 off the clip edge. */}
             <div className="onboarding-shell-scroll min-h-0 w-full flex-1 overflow-y-auto px-1 pb-1">
-              <CalendarConnectionsStep />
             </div>
           </div>
         );

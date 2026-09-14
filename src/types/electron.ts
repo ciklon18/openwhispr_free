@@ -6,7 +6,6 @@ import type {
   ManagedEnterpriseConfig,
   ManagedEnterpriseRequestContext,
 } from "./enterpriseIdentity";
-import type { CalendarAvailabilityRequest, CalendarAvailabilityResult } from "./calendar";
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia" | "cohere";
 
@@ -75,51 +74,6 @@ export type TranscriptionErrorCode =
   | "MODEL_NOT_AVAILABLE"
   | "CUSTOM_ENDPOINT_INVALID"
   | null;
-
-export type MeetingPromptVariant = "detected" | "starting" | "underway";
-
-export interface MeetingDetectionNotificationData {
-  kind: "detection";
-  detectionId: string;
-  source: string;
-  key: string;
-  event: { summary?: string | null } | null;
-  variant: MeetingPromptVariant;
-  joinUrl: string | null;
-}
-
-/** Why auto-end concluded the meeting is over. */
-export type MeetingAutoEndReason = "mic-released" | "silence" | "process-exit";
-
-export interface MeetingAutoEndNotificationData {
-  kind: "auto-end";
-  sessionId: string;
-  expiresAt: number;
-  reason?: MeetingAutoEndReason;
-  /** True when the auto-ended note has a transcript and no AI summary yet, which
-   * is when the card also offers to generate one. */
-  canSummarize?: boolean;
-}
-
-export type MeetingNotificationData =
-  MeetingDetectionNotificationData | MeetingAutoEndNotificationData;
-
-export interface MeetingAutoEndRequest {
-  sessionId: string;
-  reason?: MeetingAutoEndReason;
-}
-
-export type MeetingAutoEndAction = "restart" | "summary" | "dismiss";
-
-export interface MeetingAutoEndRestartRequest {
-  sessionId: string;
-}
-
-export interface MeetingAutoEndLifecycleResult {
-  success: boolean;
-  reason?: "invalid-session" | "invalid-action" | "stale-session";
-  error?: string;
-}
 
 /**
  * Proxied-transcription IPC results. `ipcMain.handle` drops custom error props on
@@ -781,12 +735,6 @@ export interface AudioDiagnosticsResult {
 export type SystemAudioMode = "native" | "loopback" | "portal" | "unsupported";
 export type SystemAudioStrategy =
   "native" | "loopback" | "pipewire-loopback" | "wasapi-loopback" | "unsupported";
-
-export interface MeetingSystemAudioInterruption {
-  systemAudioStrategy: SystemAudioStrategy;
-  reason: "no_audio_delivered" | "device_invalidated" | "gone_quiet";
-  recovering: boolean;
-}
 
 export interface SystemAudioAccessResult {
   granted: boolean;
@@ -1950,8 +1898,6 @@ declare global {
       windowMaximize: () => Promise<void>;
       windowClose: () => Promise<void>;
       windowIsMaximized: () => Promise<boolean>;
-      snapToMeetingMode: () => Promise<void>;
-      restoreFromMeetingMode: () => Promise<void>;
       getPlatform: () => string;
       startWindowDrag: () => Promise<void>;
       stopWindowDrag: () => Promise<void>;
@@ -2305,7 +2251,6 @@ declare global {
       // Windows Push-to-Talk notifications
       notifyActivationModeChanged?: (mode: "tap" | "push") => void;
       notifyHotkeyChanged?: (hotkey: string) => void;
-      registerMeetingHotkey?: (hotkey: string) => Promise<{ success: boolean; message?: string }>;
       notifyFloatingIconAutoHideChanged?: (enabled: boolean) => void;
       onFloatingIconAutoHideChanged?: (callback: (enabled: boolean) => void) => () => void;
       notifyStartMinimizedChanged?: (enabled: boolean) => void;
@@ -2864,42 +2809,6 @@ declare global {
         } & PolicyFailureMetadata
       >;
 
-      // Google Calendar
-      gcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
-      gcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
-      gcalGetConnectionStatus?: () => Promise<{
-        connected: boolean;
-        accounts: Array<{ email: string }>;
-        email: string | null;
-      }>;
-      gcalGetCalendars?: () => Promise<{ success: boolean; calendars: any[] }>;
-      gcalSetCalendarSelection?: (
-        calendarId: string,
-        isSelected: boolean
-      ) => Promise<{ success: boolean; error?: string }>;
-      gcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
-      gcalSyncEvents?: () => Promise<{ success: boolean; error?: string }>;
-      gcalGetUpcomingEvents?: (
-        windowMinutes?: number
-      ) => Promise<{ success: boolean; events: any[] }>;
-      calendarGetAvailability?: (
-        request: CalendarAvailabilityRequest
-      ) => Promise<
-        | { success: true; availability: CalendarAvailabilityResult }
-        | { success: false; error: string }
-      >;
-      gcalGetEvent?: (eventId: string) => Promise<{
-        success: boolean;
-        event: {
-          id: string;
-          summary: string | null;
-          start_time: string;
-          end_time: string;
-          attendees_count: number;
-          attendees: string | null;
-        } | null;
-      }>;
-
       // Contacts
       searchContacts: (query: string) => Promise<{
         success: boolean;
@@ -2910,85 +2819,6 @@ declare global {
         displayName?: string | null;
       }) => Promise<{ success: boolean }>;
       getMD5Hash: (text: string) => Promise<string>;
-
-      // Meeting transcription (streaming, dual-channel)
-      meetingTranscriptionPrepare?: (options: {
-        provider?: string;
-        model?: string;
-        language?: string;
-      }) => Promise<{ success: boolean; alreadyPrepared?: boolean } & PolicyFailureMetadata>;
-      meetingTranscriptionStart?: (options: {
-        provider?: string;
-        model?: string;
-        language?: string;
-        noteId?: number | null;
-        sessionId: string;
-        autoEndEligible: boolean;
-      }) => Promise<
-        {
-          success: boolean;
-          sessionId?: string;
-          error?: string;
-          systemAudioMode?: SystemAudioMode;
-          systemAudioStrategy?: SystemAudioStrategy;
-          oneOnOneAttendee?: { displayName: string; email: string | null } | null;
-        } & PolicyFailureMetadata
-      >;
-      meetingTranscriptionSend?: (buffer: ArrayBuffer, source: "mic" | "system") => void;
-      meetingTranscriptionSetSystemAudioAvailable?: (
-        sessionId: string,
-        available: boolean
-      ) => Promise<{ success: boolean; reason?: "stale-session" }>;
-      meetingTranscriptionStop?: (expectedSessionId?: string) => Promise<{
-        success: boolean;
-        transcript?: string;
-        diarizationSessionId?: string;
-        error?: string;
-        reason?: "stale-session";
-      }>;
-      meetingTranscriptionCancel?: () => Promise<{
-        success: boolean;
-        reason?: "recording-active";
-      }>;
-      onMeetingTranscriptionSegment?: (
-        callback: (data: {
-          text: string;
-          source: "mic" | "system";
-          type: "partial" | "final" | "retract";
-          timestamp?: number;
-        }) => void
-      ) => () => void;
-      onMeetingSpeakerIdentified?: (
-        callback: (data: {
-          speakerId: string;
-          displayName?: string | null;
-          startTime: number;
-          endTime: number;
-        }) => void
-      ) => () => void;
-      onMeetingSpeakersMerged?: (
-        callback: (
-          merges: Array<{
-            keep: string;
-            remove: string;
-            displayName?: string | null;
-            similarity: number;
-          }>
-        ) => void
-      ) => () => void;
-      onMeetingSessionSpeakerConfigUpdated?: (
-        callback: (config: { enabled: boolean; expectedCount: number }) => void
-      ) => () => void;
-      onMeetingTranscriptionError?: (callback: (error: string) => void) => () => void;
-      onMeetingTranscriptionFatalError?: (callback: (error: string) => void) => () => void;
-      onMeetingSystemAudioSilent?: (
-        callback: (data: { systemAudioStrategy: SystemAudioStrategy }) => void
-      ) => () => void;
-      onMeetingSystemAudioDegraded?: (callback: () => void) => () => void;
-      onMeetingSystemAudioInterrupted?: (
-        callback: (data: MeetingSystemAudioInterruption) => void
-      ) => () => void;
-      onMeetingSystemAudioResumed?: (callback: () => void) => () => void;
 
       // Speaker diarization
       downloadDiarizationModels?: () => Promise<{ success: boolean; error?: string }>;
@@ -3018,27 +2848,6 @@ declare global {
         code?: string;
       }>;
       onDiarizationDownloadProgress?: (callback: (data: any) => void) => () => void;
-      onMeetingDiarizationComplete?: (
-        callback: (data: {
-          sessionId?: string;
-          noteId?: number | null;
-          segments: Array<{
-            id: string;
-            text: string;
-            source: "mic" | "system";
-            timestamp?: number;
-            speaker?: string;
-            speakerName?: string;
-            speakerIsPlaceholder?: boolean;
-            suggestedName?: string;
-            suggestedProfileId?: number;
-            speakerStatus?: "provisional" | "confirmed" | "suggested" | "locked";
-            speakerLocked?: boolean;
-            speakerLockSource?: "user" | "diarization" | "suggestion";
-          }>;
-          speakerEmbeddings?: Record<string, number[]> | null;
-        }) => void
-      ) => () => void;
 
       // Speaker name mapping
       getSpeakerMappings?: (noteId: number) => Promise<
@@ -3099,52 +2908,11 @@ declare global {
       onDictationRealtimeError?: (callback: (error: string) => void) => () => void;
       onDictationRealtimeSessionEnd?: (callback: (data: { text: string }) => void) => () => void;
 
-      // Google Calendar event listeners
-      onGcalConnectionChanged?: (callback: (data: any) => void) => () => void;
-      onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
-
-      // Microsoft Calendar
-      mcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
-      mcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
-      mcalGetConnectionStatus?: () => Promise<{
-        connected: boolean;
-        accounts: Array<{ email: string }>;
-      }>;
-      mcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
-      onMcalConnectionChanged?: (callback: (data: any) => void) => () => void;
-      onMcalEventsSynced?: (callback: (data: any) => void) => () => void;
-
-      // Apple Calendar (macOS EventKit)
-      acalConnect?: () => Promise<{ success: boolean; reason?: string; error?: string }>;
-      acalDisconnect?: () => Promise<{ success: boolean; error?: string }>;
-      acalGetConnectionStatus?: () => Promise<{ connected: boolean; sourceNames: string[] }>;
-      openCalendarPrivacySettings?: () => Promise<{ success: boolean; error?: string }>;
-      onAcalConnectionChanged?: (
-        callback: (data: { connected: boolean; sourceNames: string[] }) => void
-      ) => () => void;
-      onAcalEventsSynced?: (callback: (data: any) => void) => () => void;
-
-      meetingDetectionGetPreferences?: () => Promise<{ success: boolean; preferences?: any }>;
-      meetingDetectionSetPreferences?: (
-        prefs: Record<string, boolean>
-      ) => Promise<{ success: boolean }>;
-      syncNotificationPreferences?: (
-        prefs: Record<string, boolean>
-      ) => Promise<{ success: boolean }>;
-      setSpeakerDiarizationEnabled?: (
-        enabled: boolean
-      ) => Promise<{ success: boolean; error?: string }>;
-      setMeetingSessionSpeakerConfig?: (config: {
-        enabled: boolean;
-        expectedCount: number;
-        countIsExplicit?: boolean;
-      }) => Promise<{ success: boolean; error?: string }>;
       getWhisperVadConfig?: () => Promise<{
         success: boolean;
         config?: {
           dictationSileroEnabled: boolean;
           noteRecordingSileroEnabled: boolean;
-          meetingSileroEnabled: boolean;
           threshold: number;
           minSpeechDurationMs: number;
           minSilenceDurationMs: number;
@@ -3157,7 +2925,6 @@ declare global {
       setWhisperVadConfig?: (config: {
         dictationSileroEnabled?: boolean;
         noteRecordingSileroEnabled?: boolean;
-        meetingSileroEnabled?: boolean;
         threshold?: number;
         minSpeechDurationMs?: number;
         minSilenceDurationMs?: number;
@@ -3165,33 +2932,6 @@ declare global {
         speechPadMs?: number;
         samplesOverlap?: number;
       }) => Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }>;
-      onMeetingNotificationData?: (callback: (data: MeetingNotificationData) => void) => () => void;
-      onMeetingAutoEndRequested?: (
-        callback: (request: MeetingAutoEndRequest) => void
-      ) => () => void;
-      meetingAutoEndCompleted?: (sessionId: string) => Promise<MeetingAutoEndLifecycleResult>;
-      meetingAutoEndRespond?: (
-        sessionId: string,
-        action: MeetingAutoEndAction
-      ) => Promise<MeetingAutoEndLifecycleResult>;
-      onMeetingAutoEndRestartRequested?: (
-        callback: (request: MeetingAutoEndRestartRequest) => void
-      ) => () => void;
-      getMeetingNotificationData?: () => Promise<MeetingNotificationData | null>;
-      meetingNotificationReady?: () => Promise<void>;
-      meetingNotificationRespond?: (
-        detectionId: string,
-        action: string
-      ) => Promise<{ success: boolean }>;
-      joinCalendarMeeting?: (eventId: string) => Promise<{ success: boolean }>;
-      startManualMeeting?: () => Promise<void>;
-      getPendingMeetingNoteNavigation?: () => Promise<{
-        noteId: number;
-        folderId: number;
-        event: any;
-        trigger?: "hotkey" | "manual" | "calendar-join";
-      } | null>;
-      onMeetingNoteNavigationPending?: (callback: () => void) => () => void;
       getPendingNoteNavigation?: () => Promise<{
         noteId: number;
         folderId: number | null;

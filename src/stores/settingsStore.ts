@@ -12,7 +12,6 @@ import type {
   InferenceMode,
   SelfHostedType,
 } from "../types/electron";
-import type { CalendarAccount } from "../types/calendar";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import { sweepRetiredPromptOverrides } from "../config/retiredPrompts";
 import { sweepRetiredCloudModelSelections } from "../config/retiredCloudModels";
@@ -36,7 +35,6 @@ import { pickDefaultModelId } from "../models/providerDefaultModel";
 // the switch store only zustand, so neither reopens the ModelRegistry cycle.
 import { readCachedTinfoilModels } from "../models/tinfoilModelCache";
 import { recordTinfoilModelSwitch } from "./tinfoilModelSwitchStore";
-import { MEETING_STREAMING_PROVIDER_IDS } from "../helpers/meetingTranscriptionRouting";
 import { STREAMING_ONLY_PROVIDERS } from "../helpers/transcriptionRoute";
 import {
   getTranscriptionSelection,
@@ -93,18 +91,6 @@ const TRANSCRIPTION_POLICY_CATALOG = {
   enterpriseProviders: TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
 };
 
-const MEETING_TRANSCRIPTION_POLICY_CATALOG = {
-  // Self-hosted realtime is not implemented for Note Recording.
-  modes: ["openwhispr", "providers", "local"] as const,
-  byokProviders: modelRegistryData.transcriptionProviders
-    .filter(
-      (provider) =>
-        MEETING_STREAMING_PROVIDER_IDS.includes(provider.id) &&
-        provider.models.some((model) => model.streaming)
-    )
-    .map((provider) => provider.id),
-};
-
 const LLM_POLICY_CATALOG = {
   modes: ["openwhispr", "providers", "local", "self-hosted", "enterprise"] as const,
   byokProviders: LLM_POLICY_PROVIDER_IDS,
@@ -122,7 +108,7 @@ function transcriptionProviderModels(
   const models =
     modelRegistryData.transcriptionProviders.find((provider) => provider.id === providerId)
       ?.models ?? [];
-  return context === "meeting" ? models.filter((model) => model.streaming) : models;
+  return models;
 }
 
 function defaultTranscriptionModel(
@@ -278,7 +264,6 @@ initializeAutoUpdatesDefault();
 
 const BOOLEAN_SETTINGS = new Set([
   "useLocalWhisper",
-  "meetingUseLocalWhisper",
   "uploadUseLocalWhisper",
   "allowOpenAIFallback",
   "allowLocalFallback",
@@ -298,11 +283,8 @@ const BOOLEAN_SETTINGS = new Set([
   "pauseMediaOnDictation",
   "floatingIconAutoHide",
   "startMinimized",
-  "meetingProcessDetection",
-  "speakerDiarizationEnabled",
   "dictationSileroEnabled",
   "noteRecordingSileroEnabled",
-  "meetingSileroEnabled",
   "isSignedIn",
   "autoPasteEnabled",
   "pressEnterAfterPaste",
@@ -317,19 +299,12 @@ const BOOLEAN_SETTINGS = new Set([
   "noteFormattingDisableThinking",
   "chatAgentDisableThinking",
   "notificationsEnabled",
-  "notifyMeetingDetection",
-  "notifyCalendarReminders",
   "autoUpdatesEnabled",
-  "gcalPrimaryOnly",
-  "mcalPrimaryOnly",
-  "appleCalendarConnected",
 ]);
 
 const ARRAY_SETTINGS = new Set([
   "customDictionary",
   "snippets",
-  "gcalAccounts",
-  "mcalAccounts",
   "onboardingUseCases",
   "spokenLanguages",
   "translationTargets",
@@ -878,23 +853,10 @@ export interface SettingsState
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
   startMinimized: boolean;
-  gcalAccounts: CalendarAccount[];
-  gcalConnected: boolean;
-  gcalEmail: string;
-  mcalAccounts: CalendarAccount[];
-  mcalConnected: boolean;
   notificationsEnabled: boolean;
-  notifyMeetingDetection: boolean;
-  notifyCalendarReminders: boolean;
   autoUpdatesEnabled: boolean;
-  gcalPrimaryOnly: boolean;
-  mcalPrimaryOnly: boolean;
-  appleCalendarConnected: boolean;
-  meetingProcessDetection: boolean;
-  speakerDiarizationEnabled: boolean;
   dictationSileroEnabled: boolean;
   noteRecordingSileroEnabled: boolean;
-  meetingSileroEnabled: boolean;
   whisperVadThreshold: number;
   whisperVadMinSpeechDurationMs: number;
   whisperVadMinSilenceDurationMs: number;
@@ -917,19 +879,6 @@ export interface SettingsState
   remoteTranscriptionModel: string;
   cleanupMode: InferenceMode;
   cleanupRemoteUrl: string;
-
-  meetingTranscriptionMode: InferenceMode;
-  meetingUseLocalWhisper: boolean;
-  meetingWhisperModel: string;
-  meetingLocalTranscriptionProvider: LocalTranscriptionProvider;
-  meetingParakeetModel: string;
-  meetingCohereModel: string;
-  meetingCloudTranscriptionProvider: string;
-  meetingCloudTranscriptionModel: string;
-  meetingCloudTranscriptionBaseUrl: string;
-  meetingCloudTranscriptionMode: string;
-  meetingRemoteTranscriptionType: SelfHostedType;
-  meetingRemoteTranscriptionUrl: string;
 
   uploadTranscriptionMode: InferenceMode;
   uploadUseLocalWhisper: boolean;
@@ -1020,19 +969,6 @@ export interface SettingsState
   setRemoteTranscriptionModel: (model: string) => void;
   setCleanupMode: (mode: InferenceMode) => void;
   setCleanupRemoteUrl: (url: string) => void;
-
-  setMeetingTranscriptionMode: (mode: InferenceMode) => void;
-  setMeetingUseLocalWhisper: (value: boolean) => void;
-  setMeetingWhisperModel: (value: string) => void;
-  setMeetingLocalTranscriptionProvider: (value: LocalTranscriptionProvider) => void;
-  setMeetingParakeetModel: (value: string) => void;
-  setMeetingCohereModel: (value: string) => void;
-  setMeetingCloudTranscriptionProvider: (value: string) => void;
-  setMeetingCloudTranscriptionModel: (value: string) => void;
-  setMeetingCloudTranscriptionBaseUrl: (value: string) => void;
-  setMeetingCloudTranscriptionMode: (value: string) => void;
-  setMeetingRemoteTranscriptionType: (type: SelfHostedType) => void;
-  setMeetingRemoteTranscriptionUrl: (url: string) => void;
 
   setUploadTranscriptionMode: (mode: InferenceMode) => void;
   setUploadUseLocalWhisper: (value: boolean) => void;
@@ -1166,11 +1102,9 @@ export interface SettingsState
   setVertexApiKey: (key: string) => void;
 
   setDictationKey: (key: string) => void;
-  setMeetingKey: (key: string) => void;
   setVoiceAgentKey: (key: string) => Promise<boolean>;
   translationKey: string;
   setTranslationKey: (key: string) => Promise<boolean>;
-  setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => void;
   setOnboardingUseCases: (useCases: string[]) => void;
   setOnboardingUseCaseNote: (note: string) => void;
   setSpokenLanguages: (languages: string[]) => void;
@@ -1193,20 +1127,10 @@ export interface SettingsState
   setPauseMediaOnDictation: (value: boolean) => void;
   setFloatingIconAutoHide: (enabled: boolean) => void;
   setStartMinimized: (enabled: boolean) => void;
-  setGcalAccounts: (accounts: CalendarAccount[]) => void;
-  setMcalAccounts: (accounts: CalendarAccount[]) => void;
   setNotificationsEnabled: (value: boolean) => void;
-  setNotifyMeetingDetection: (value: boolean) => void;
-  setNotifyCalendarReminders: (value: boolean) => void;
   setAutoUpdatesEnabled: (enabled: boolean) => void;
-  setGcalPrimaryOnly: (value: boolean) => void;
-  setMcalPrimaryOnly: (value: boolean) => void;
-  setAppleCalendarConnected: (value: boolean) => void;
-  setMeetingProcessDetection: (value: boolean) => void;
-  setSpeakerDiarizationEnabled: (value: boolean) => void;
   setDictationSileroEnabled: (value: boolean) => void;
   setNoteRecordingSileroEnabled: (value: boolean) => void;
-  setMeetingSileroEnabled: (value: boolean) => void;
   setWhisperVadThreshold: (value: number) => void;
   setWhisperVadMinSpeechDurationMs: (value: number) => void;
   setWhisperVadMinSilenceDurationMs: (value: number) => void;
@@ -1655,15 +1579,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   dictationKey: readString("dictationKey", ""),
   activeDictationKey: null,
-  meetingKey: readString("meetingKey", ""),
   voiceAgentKey: readString("voiceAgentKey", ""),
   translationKey: readString("translationKey", ""),
   onboardingUseCases: readStringArray("onboardingUseCases", []),
   onboardingUseCaseNote: readString("onboardingUseCaseNote", ""),
   spokenLanguages: readStringArray("spokenLanguages", []),
-  meetingHotkeyLayoutMode: (readString("meetingHotkeyLayoutMode", "full-width") === "side-panel"
-    ? "side-panel"
-    : "full-width") as "side-panel" | "full-width",
   activationMode: (readString("activationMode", "tap") === "push" ? "push" : "tap") as
     "tap" | "push",
 
@@ -1695,46 +1615,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   floatingIconAutoHide: readBoolean("floatingIconAutoHide", false),
   startMinimized: readBoolean("startMinimized", false),
   notificationsEnabled: readBoolean("notificationsEnabled", true),
-  notifyMeetingDetection: readBoolean("notifyMeetingDetection", true),
-  notifyCalendarReminders: readBoolean("notifyCalendarReminders", true),
   autoUpdatesEnabled: readBoolean("autoUpdatesEnabled", true),
-  ...(() => {
-    let accounts: CalendarAccount[] = [];
-    try {
-      const parsed = JSON.parse(readString("gcalAccounts", "[]"));
-      if (Array.isArray(parsed)) accounts = parsed;
-    } catch {
-      /* use empty default */
-    }
-    return {
-      gcalAccounts: accounts,
-      gcalConnected: accounts.length > 0,
-      gcalEmail: accounts[0]?.email ?? "",
-    };
-  })(),
-  ...(() => {
-    let accounts: CalendarAccount[] = [];
-    try {
-      const parsed = JSON.parse(readString("mcalAccounts", "[]"));
-      if (Array.isArray(parsed)) accounts = parsed;
-    } catch {
-      /* use empty default */
-    }
-    return {
-      mcalAccounts: accounts,
-      mcalConnected: accounts.length > 0,
-    };
-  })(),
-  gcalPrimaryOnly: readBoolean("gcalPrimaryOnly", true),
-  mcalPrimaryOnly: readBoolean("mcalPrimaryOnly", true),
-  appleCalendarConnected: readBoolean("appleCalendarConnected", false),
-  meetingProcessDetection: readBoolean("meetingProcessDetection", true),
-  speakerDiarizationEnabled: readBoolean("speakerDiarizationEnabled", true),
   // Off by default: VAD on pause-heavy dictations can strip the speech and make
   // Whisper hallucinate the dictionary prompt as the transcript (#1454).
   dictationSileroEnabled: readBoolean("dictationSileroEnabled", false),
   noteRecordingSileroEnabled: readBoolean("noteRecordingSileroEnabled", true),
-  meetingSileroEnabled: readBoolean("meetingSileroEnabled", true),
   whisperVadThreshold: clampVadValue("threshold", readString("whisperVadThreshold", "0.5")),
   whisperVadMinSpeechDurationMs: clampVadValue(
     "minSpeechDurationMs",
@@ -1792,26 +1677,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     return "openwhispr" as InferenceMode;
   })(),
   cleanupRemoteUrl: readString("cleanupRemoteUrl", ""),
-
-  meetingTranscriptionMode: (() => {
-    const v = readString("meetingTranscriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
-  })(),
-  meetingUseLocalWhisper: readBoolean("meetingUseLocalWhisper", false),
-  meetingWhisperModel: readString("meetingWhisperModel", ""),
-  meetingLocalTranscriptionProvider: readScopedLocalProvider("meetingLocalTranscriptionProvider"),
-  meetingParakeetModel: readString("meetingParakeetModel", ""),
-  meetingCohereModel: readString("meetingCohereModel", ""),
-  meetingCloudTranscriptionProvider: readString("meetingCloudTranscriptionProvider", ""),
-  meetingCloudTranscriptionModel: readString("meetingCloudTranscriptionModel", ""),
-  meetingCloudTranscriptionBaseUrl: readString("meetingCloudTranscriptionBaseUrl", ""),
-  meetingCloudTranscriptionMode: readString("meetingCloudTranscriptionMode", ""),
-  meetingRemoteTranscriptionType: (() => {
-    const v = readString("meetingRemoteTranscriptionType", "lan");
-    return v === "openai-compatible" ? "openai-compatible" : ("lan" as SelfHostedType);
-  })(),
-  meetingRemoteTranscriptionUrl: readString("meetingRemoteTranscriptionUrl", ""),
 
   uploadTranscriptionMode: (() => {
     const v = readString("uploadTranscriptionMode", "openwhispr");
@@ -1885,26 +1750,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setRemoteTranscriptionModel: createStringSetter("remoteTranscriptionModel"),
   setCleanupMode: createStringSetter("cleanupMode") as (mode: InferenceMode) => void,
   setCleanupRemoteUrl: createStringSetter("cleanupRemoteUrl"),
-
-  setMeetingTranscriptionMode: createStringSetter("meetingTranscriptionMode") as (
-    mode: InferenceMode
-  ) => void,
-  setMeetingUseLocalWhisper: createBooleanSetter("meetingUseLocalWhisper"),
-  setMeetingWhisperModel: createStringSetter("meetingWhisperModel"),
-  setMeetingLocalTranscriptionProvider: (value: LocalTranscriptionProvider) => {
-    if (isBrowser) localStorage.setItem("meetingLocalTranscriptionProvider", value);
-    useSettingsStore.setState({ meetingLocalTranscriptionProvider: value });
-  },
-  setMeetingParakeetModel: createStringSetter("meetingParakeetModel"),
-  setMeetingCohereModel: createStringSetter("meetingCohereModel"),
-  setMeetingCloudTranscriptionProvider: createStringSetter("meetingCloudTranscriptionProvider"),
-  setMeetingCloudTranscriptionModel: createStringSetter("meetingCloudTranscriptionModel"),
-  setMeetingCloudTranscriptionBaseUrl: createStringSetter("meetingCloudTranscriptionBaseUrl"),
-  setMeetingCloudTranscriptionMode: createStringSetter("meetingCloudTranscriptionMode"),
-  setMeetingRemoteTranscriptionType: createStringSetter("meetingRemoteTranscriptionType") as (
-    type: SelfHostedType
-  ) => void,
-  setMeetingRemoteTranscriptionUrl: createStringSetter("meetingRemoteTranscriptionUrl"),
 
   setUploadTranscriptionMode: createStringSetter("uploadTranscriptionMode") as (
     mode: InferenceMode
@@ -2399,10 +2244,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       window.electronAPI?.saveDictationKey?.(key);
     }
   },
-  setMeetingKey: (key: string) => {
-    if (isBrowser) localStorage.setItem("meetingKey", key);
-    set({ meetingKey: key });
-  },
   setVoiceAgentKey: createRegisteredHotkeySetter(
     "voiceAgentKey",
     "voice agent hotkey",
@@ -2413,11 +2254,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     "translation hotkey",
     () => window.electronAPI?.updateTranslationHotkey
   ),
-
-  setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => {
-    if (isBrowser) localStorage.setItem("meetingHotkeyLayoutMode", mode);
-    set({ meetingHotkeyLayoutMode: mode });
-  },
 
   setOnboardingUseCases: (useCases: string[]) => {
     if (isBrowser) localStorage.setItem("onboardingUseCases", JSON.stringify(useCases));
@@ -2545,47 +2381,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
   },
 
-  setGcalAccounts: (accounts: CalendarAccount[]) => {
-    if (isBrowser) localStorage.setItem("gcalAccounts", JSON.stringify(accounts));
-    useSettingsStore.setState({
-      gcalAccounts: accounts,
-      gcalConnected: accounts.length > 0,
-      gcalEmail: accounts[0]?.email ?? "",
-    });
-  },
-  setMcalAccounts: (accounts: CalendarAccount[]) => {
-    if (isBrowser) localStorage.setItem("mcalAccounts", JSON.stringify(accounts));
-    useSettingsStore.setState({
-      mcalAccounts: accounts,
-      mcalConnected: accounts.length > 0,
-    });
-  },
   setNotificationsEnabled: createBooleanSetter("notificationsEnabled"),
-  setNotifyMeetingDetection: createBooleanSetter("notifyMeetingDetection"),
-  setNotifyCalendarReminders: createBooleanSetter("notifyCalendarReminders"),
   setAutoUpdatesEnabled: (enabled: boolean) => {
     if (isBrowser) localStorage.setItem("autoUpdatesEnabled", String(enabled));
     set({ autoUpdatesEnabled: enabled });
     if (isBrowser) window.electronAPI?.setAutoUpdatesEnabled?.(enabled);
-  },
-  setGcalPrimaryOnly: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("gcalPrimaryOnly", String(value));
-    useSettingsStore.setState({ gcalPrimaryOnly: value });
-    if (isBrowser) window.electronAPI?.gcalSetPrimaryOnly?.(value);
-  },
-  setMcalPrimaryOnly: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("mcalPrimaryOnly", String(value));
-    useSettingsStore.setState({ mcalPrimaryOnly: value });
-    if (isBrowser) window.electronAPI?.mcalSetPrimaryOnly?.(value);
-  },
-  setAppleCalendarConnected: createBooleanSetter("appleCalendarConnected"),
-  setMeetingProcessDetection: createBooleanSetter("meetingProcessDetection"),
-  setSpeakerDiarizationEnabled: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("speakerDiarizationEnabled", String(value));
-    useSettingsStore.setState({ speakerDiarizationEnabled: value });
-    if (isBrowser) {
-      window.electronAPI?.setSpeakerDiarizationEnabled?.(value);
-    }
   },
   setDictationSileroEnabled: (value: boolean) => {
     if (isBrowser) localStorage.setItem("dictationSileroEnabled", String(value));
@@ -2599,13 +2399,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     useSettingsStore.setState({ noteRecordingSileroEnabled: value });
     if (isBrowser) {
       window.electronAPI?.setWhisperVadConfig?.({ noteRecordingSileroEnabled: value });
-    }
-  },
-  setMeetingSileroEnabled: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("meetingSileroEnabled", String(value));
-    useSettingsStore.setState({ meetingSileroEnabled: value });
-    if (isBrowser) {
-      window.electronAPI?.setWhisperVadConfig?.({ meetingSileroEnabled: value });
     }
   },
   setWhisperVadThreshold: (value: number) => {
@@ -2746,13 +2539,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       cloudTranscriptionProvider
     );
     s.setTranscriptionMode(mode);
-    s.setMeetingTranscriptionMode(mode);
     s.setUploadTranscriptionMode(mode);
-    s.setMeetingUseLocalWhisper(useLocalWhisper);
-    s.setMeetingLocalTranscriptionProvider(localTranscriptionProvider);
-    s.setMeetingCloudTranscriptionMode(cloudTranscriptionMode);
-    s.setMeetingCloudTranscriptionProvider(cloudTranscriptionProvider);
-    s.setMeetingCloudTranscriptionModel(cloudTranscriptionModel);
     s.setUploadUseLocalWhisper(useLocalWhisper);
     s.setUploadLocalTranscriptionProvider(localTranscriptionProvider);
     s.setUploadCloudTranscriptionMode(cloudTranscriptionMode);
@@ -2888,40 +2675,6 @@ export const selectIsCloudNoteFormattingMode = (state: SettingsState) => {
   const cfg = selectResolvedNoteFormatting(state);
   return state.isSignedIn && cfg.mode === "openwhispr" && cfg.cloudMode === "openwhispr";
 };
-
-export interface ResolvedMeetingTranscription {
-  useLocalWhisper: boolean;
-  whisperModel: string;
-  localTranscriptionProvider: LocalTranscriptionProvider;
-  parakeetModel: string;
-  cohereModel: string;
-  cloudTranscriptionProvider: string;
-  cloudTranscriptionModel: string;
-  cloudTranscriptionBaseUrl: string;
-  cloudTranscriptionMode: string;
-  transcriptionMode: InferenceMode;
-  remoteTranscriptionType: SelfHostedType;
-  remoteTranscriptionUrl: string;
-}
-
-export const selectResolvedMeetingTranscription = (
-  state: SettingsState
-): ResolvedMeetingTranscription => ({
-  useLocalWhisper: state.meetingUseLocalWhisper,
-  whisperModel: state.meetingWhisperModel || state.whisperModel,
-  localTranscriptionProvider: state.meetingLocalTranscriptionProvider,
-  parakeetModel: state.meetingParakeetModel || state.parakeetModel,
-  cohereModel: state.meetingCohereModel || state.cohereModel,
-  cloudTranscriptionProvider:
-    state.meetingCloudTranscriptionProvider || state.cloudTranscriptionProvider,
-  cloudTranscriptionModel: state.meetingCloudTranscriptionModel || state.cloudTranscriptionModel,
-  cloudTranscriptionBaseUrl:
-    state.meetingCloudTranscriptionBaseUrl || state.cloudTranscriptionBaseUrl || "",
-  cloudTranscriptionMode: state.meetingCloudTranscriptionMode || state.cloudTranscriptionMode,
-  transcriptionMode: state.meetingTranscriptionMode,
-  remoteTranscriptionType: state.meetingRemoteTranscriptionType,
-  remoteTranscriptionUrl: state.meetingRemoteTranscriptionUrl || state.remoteTranscriptionUrl,
-});
 
 export interface ResolvedUploadTranscription {
   useLocalWhisper: boolean;
@@ -3123,15 +2876,6 @@ const TRANSCRIPTION_CONTEXT_KEYS: readonly TranscriptionContextKeys[] = [
     baseUrl: "cloudTranscriptionBaseUrl",
   },
   {
-    context: "meeting",
-    mode: "meetingTranscriptionMode",
-    useLocal: "meetingUseLocalWhisper",
-    cloudMode: "meetingCloudTranscriptionMode",
-    provider: "meetingCloudTranscriptionProvider",
-    model: "meetingCloudTranscriptionModel",
-    baseUrl: "meetingCloudTranscriptionBaseUrl",
-  },
-  {
     context: "upload",
     mode: "uploadTranscriptionMode",
     useLocal: "uploadUseLocalWhisper",
@@ -3164,9 +2908,7 @@ export function selectPolicyEffectiveSettings(
       policyState,
       "transcription",
       rawSelection,
-      keys.context === "meeting"
-        ? MEETING_TRANSCRIPTION_POLICY_CATALOG
-        : TRANSCRIPTION_POLICY_CATALOG
+      TRANSCRIPTION_POLICY_CATALOG
     );
     if (!selection) continue;
 
@@ -3699,37 +3441,7 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
-    // Audio detection is derived from the meeting-notification toggle in
-    // sync-notification-preferences, so it is not sent here.
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.meetingDetectionSetPreferences?.({
-        processDetection: currentState.meetingProcessDetection,
-      });
-    } catch (err) {
-      logger.warn(
-        "Failed to sync meeting detection preferences on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.syncNotificationPreferences?.({
-        notificationsEnabled: currentState.notificationsEnabled,
-        notifyMeetingDetection: currentState.notifyMeetingDetection,
-        notifyCalendarReminders: currentState.notifyCalendarReminders,
-      });
-    } catch (err) {
-      logger.warn(
-        "Failed to sync notification preferences on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
+      try {
       await window.electronAPI.setAutoUpdatesEnabled?.(
         useSettingsStore.getState().autoUpdatesEnabled
       );
@@ -3741,61 +3453,11 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
-    // The main-process DB is the source of truth for the Apple Calendar connection
-    try {
-      const status = await window.electronAPI.acalGetConnectionStatus?.();
-      if (status) {
-        useSettingsStore.getState().setAppleCalendarConnected(status.connected);
-      }
-    } catch (err) {
-      logger.warn(
-        "Failed to hydrate Apple Calendar connection status",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.gcalSetPrimaryOnly?.(currentState.gcalPrimaryOnly);
-    } catch (err) {
-      logger.warn(
-        "Failed to sync gcal primary-only on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.mcalSetPrimaryOnly?.(currentState.mcalPrimaryOnly);
-    } catch (err) {
-      logger.warn(
-        "Failed to sync mcal primary-only on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.setSpeakerDiarizationEnabled?.(
-        currentState.speakerDiarizationEnabled
-      );
-    } catch (err) {
-      logger.warn(
-        "Failed to sync speaker diarization preference on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
+      try {
       const currentState = useSettingsStore.getState();
       await window.electronAPI.setWhisperVadConfig?.({
         dictationSileroEnabled: currentState.dictationSileroEnabled,
         noteRecordingSileroEnabled: currentState.noteRecordingSileroEnabled,
-        meetingSileroEnabled: currentState.meetingSileroEnabled,
         threshold: currentState.whisperVadThreshold,
         minSpeechDurationMs: currentState.whisperVadMinSpeechDurationMs,
         minSilenceDurationMs: currentState.whisperVadMinSilenceDurationMs,
@@ -3879,19 +3541,7 @@ export async function initializeSettings(): Promise<void> {
 
     useSettingsStore.setState({ [key]: value });
 
-    if (key === "gcalAccounts" && Array.isArray(value)) {
-      const accounts = value as CalendarAccount[];
-      useSettingsStore.setState({
-        gcalConnected: accounts.length > 0,
-        gcalEmail: accounts[0]?.email ?? "",
-      });
-    }
-
-    if (key === "mcalAccounts" && Array.isArray(value)) {
-      useSettingsStore.setState({ mcalConnected: (value as CalendarAccount[]).length > 0 });
-    }
-
-    if (key === "uiLanguage" && typeof value === "string") {
+      if (key === "uiLanguage" && typeof value === "string") {
       void i18n.changeLanguage(value);
     }
   });

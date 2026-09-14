@@ -14,7 +14,7 @@ import { useDialogs } from "../hooks/useDialogs";
 import { useModelDownload, type DownloadProgress } from "../hooks/useModelDownload";
 import {
   getTranscriptionProviders,
-  getMeetingStreamingTranscriptionProviders,
+  getStreamingTranscriptionProviders,
   TranscriptionProviderData,
   WHISPER_MODEL_INFO,
   PARAKEET_MODEL_INFO,
@@ -508,7 +508,7 @@ export default function TranscriptionModelPicker({
   // Upload is always http-batch, and the realtime-only providers have no batch
   // route at all (transcriptionRoute fails them closed), so they are hidden there.
   const availableCloudProviders = useMemo(() => {
-    if (streamingOnly) return getMeetingStreamingTranscriptionProviders();
+    if (streamingOnly) return getStreamingTranscriptionProviders();
     const providers = getTranscriptionProviders();
     if (transcriptionContext !== "upload") return providers;
     return providers.filter((provider) => !STREAMING_ONLY_PROVIDERS.has(provider.id));

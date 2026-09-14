@@ -354,18 +354,13 @@ export function isTranscriptionSelectionAllowed(
   return true;
 }
 
-export type TranscriptionPolicyContext = "dictation" | "meeting" | "upload";
+export type TranscriptionPolicyContext = "dictation" | "upload";
 
 export function getTranscriptionSelection(
   settings: SettingsState,
   context: TranscriptionPolicyContext
 ): TranscriptionSelection {
-  if (context === "meeting") {
-    return {
-      mode: settings.meetingTranscriptionMode,
-      provider: settings.meetingCloudTranscriptionProvider || settings.cloudTranscriptionProvider,
-    };
-  }
+
   if (context === "upload") {
     return {
       mode: settings.uploadTranscriptionMode,

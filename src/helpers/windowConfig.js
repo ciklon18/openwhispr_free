@@ -293,16 +293,6 @@ const AUTO_END_NOTIFICATION_WINDOW_SIZE = {
   height: 144,
 };
 
-function getMeetingNotificationWindowSize(promptData) {
-  if (promptData?.kind === "auto-end") {
-    return AUTO_END_NOTIFICATION_WINDOW_SIZE;
-  }
-  return {
-    width: NOTIFICATION_WINDOW_CONFIG.width,
-    height: NOTIFICATION_WINDOW_CONFIG.height,
-  };
-}
-
 class WindowPositionUtil {
   static getMainWindowPosition(display, customSize = null, position = "bottom-right") {
     const { width, height } = customSize || WINDOW_SIZES.BASE;
@@ -406,7 +396,6 @@ module.exports = {
   fitDictationErrorWindowToWorkArea,
   resolveHorizontalWindowDirection,
   AUTO_END_NOTIFICATION_WINDOW_SIZE,
-  getMeetingNotificationWindowSize,
   WINDOW_SIZES,
   WindowPositionUtil,
   resolveOverlayWindowType,
