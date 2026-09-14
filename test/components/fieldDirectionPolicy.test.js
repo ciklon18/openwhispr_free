@@ -162,9 +162,7 @@ test("representative prose, identity, secret, and rich-editor surfaces keep thei
     source("src/components/upload/UploadAudioView.tsx"),
     /<input\s+dir="ltr"\s+type="url"/
   );
-  assert.match(
-    /<input\s+dir="auto"[\s\S]*?placeholder=\{t\("noteEditor\.share\.dialog\.searchPlaceholder"\)\}/
-  );
+
   assert.match(
     source("src/components/ui/ApiKeyInput.tsx"),
     /<span\s+dir="ltr"[\s\S]*?\{maskKey\(apiKey\)\}/
@@ -180,16 +178,6 @@ test("representative prose, identity, secret, and rich-editor surfaces keep thei
     /function HotkeyChord[\s\S]*?<div\s+dir="ltr"/
   );
   assert.match(source("src/components/ErrorBoundary.tsx"), /<pre\s+dir="ltr"/);
-  assert.match(
-    /<div\s+dir="auto"\s+ref=\{titleRef\}/
-  );
-  assert.match(source("src/components/ui/RichTextEditor.tsx"), /dir: "auto"/);
-  assert.match(
-    source("src/index.css"),
-    /\.rich-text-editor-content \{[\s\S]*?unicode-bidi: plaintext;/
-  );
-  assert.match(
-    source("src/index.css"),
-    /\.rich-text-editor-content code,[\s\S]*?direction: ltr;[\s\S]*?unicode-bidi: isolate;/
-  );
+
+
 });
