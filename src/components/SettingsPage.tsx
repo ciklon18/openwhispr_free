@@ -1573,12 +1573,6 @@ export default function SettingsPage({
     readAutoStartState().finally(() => setAutoStartLoading(false));
   }, [readAutoStartState]);
 
-  useEffect(() => {
-    window.electronAPI?.syncNotificationPreferences?.({
-      notificationsEnabled,
-    });
-  }, [notificationsEnabled]);
-
   const handleAutoStartChange = async (enabled: boolean) => {
     if (!window.electronAPI?.setAutoStartEnabled) return;
     try {

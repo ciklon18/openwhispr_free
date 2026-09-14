@@ -31,7 +31,7 @@ import {
   DOWNLOAD_ERROR_KEYS,
   transcriptionErrorKey,
   MEETINGS_FOLDER_NAME,
-} from "./shared";
+} from "../notes/shared";
 import { useAuth } from "../../hooks/useAuth";
 import { useUsage } from "../../hooks/useUsage";
 import { useSettings } from "../../hooks/useSettings";

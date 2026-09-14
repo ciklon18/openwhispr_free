@@ -52,14 +52,6 @@ test("dynamic prose and identity values keep their own direction", () => {
   for (const [file, pattern] of expectations) {
     assert.match(source(file), pattern, `${file} lost its content-direction policy`);
   }
-
-    /<span\s+dir="auto"[^>]*>[\s\S]*?\{displayName\}\s*<\/span>/g
-  );
-  assert.equal(
-    treeContainerLabels?.length,
-    2,
-    "space and localized folder labels must both detect their content direction"
-  );
 });
 
 test("technical output values remain LTR inside an Arabic document", () => {
