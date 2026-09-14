@@ -9,7 +9,7 @@ async function loadFeedback(t) {
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-upload-audio-feedback-test-",
   });
-  return vite.ssrLoadModule("/components/notes/UploadAudioFeedback.tsx");
+  return vite.ssrLoadModule("/components/upload/UploadAudioFeedback.tsx");
 }
 
 async function loadBatchQueueView(t) {
@@ -17,7 +17,7 @@ async function loadBatchQueueView(t) {
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-batch-warning-indicator-test-",
   });
-  return vite.ssrLoadModule("/components/notes/BatchQueueView.tsx");
+  return vite.ssrLoadModule("/components/upload/BatchQueueView.tsx");
 }
 
 test("the model button announces the model it names, not just the action", async (t) => {

@@ -22,12 +22,9 @@ test("dynamic prose and identity values keep their own direction", () => {
     ["src/components/SnippetsView.tsx", /<span\s+dir="auto"[^>]*>\s*\{snippet\.trigger\}/],
     ["src/components/SnippetsView.tsx", /<span\s+dir="auto"[^>]*>\s*\{snippet\.replacement\}/],
     [
-      "src/components/notes/SpacesTree.tsx",
       /<span\s+dir="auto"[^>]*>\s*\{displayName\}\s*<\/span>/,
     ],
-    ["src/components/notes/SpacesTree.tsx", /<span\s+dir="auto"[^>]*>\s*\{title\}\s*<\/span>/],
     [
-      "src/components/notes/SpacesTree.tsx",
       /<span\s+dir="auto"[^>]*\s+title=\{workspace\.name\}[\s\S]*?\{workspace\.name\}/,
     ],
     ["src/components/EmailVerificationStep.tsx", /<span\s+dir="ltr"[^>]*>\s*\{email\}/],
@@ -46,17 +43,16 @@ test("dynamic prose and identity values keep their own direction", () => {
     ],
     ["src/components/settings/WorkspaceMembersTab.tsx", /<bdi dir="ltr">\{inv\.email\}<\/bdi>/],
     [
-      "src/components/notes/UploadAudioView.tsx",
+      "src/components/upload/UploadAudioView.tsx",
       /<p\s+dir="auto"[^>]*>\s*\{downloadProgress\.title\}/,
     ],
-    ["src/components/notes/UploadAudioView.tsx", /<span\s+dir="auto"[^>]*>\s*\{f\.name\}/],
+    ["src/components/upload/UploadAudioView.tsx", /<span\s+dir="auto"[^>]*>\s*\{f\.name\}/],
   ];
 
   for (const [file, pattern] of expectations) {
     assert.match(source(file), pattern, `${file} lost its content-direction policy`);
   }
 
-  const treeContainerLabels = source("src/components/notes/SpacesTree.tsx").match(
     /<span\s+dir="auto"[^>]*>[\s\S]*?\{displayName\}\s*<\/span>/g
   );
   assert.equal(
@@ -94,11 +90,11 @@ test("technical output values remain LTR inside an Arabic document", () => {
       /<select\s+dir="ltr"\s+value=\{store\.vertexLocation\}/,
     ],
     [
-      "src/components/notes/UploadAudioView.tsx",
+      "src/components/upload/UploadAudioView.tsx",
       /<p\s+dir="ltr"[^>]*font-medium[^>]*>\s*\{file\.name\}/,
     ],
     [
-      "src/components/notes/UploadAudioView.tsx",
+      "src/components/upload/UploadAudioView.tsx",
       /<p\s+dir="ltr"[^>]*max-w-50[^>]*>\s*\{file\.name\}/,
     ],
     ["src/components/ui/SidebarModal.tsx", /<span\s+dir="ltr"[\s\S]*?v\{version\}/],
@@ -183,32 +179,20 @@ test("user-authored names and previews detect direction at their display boundar
     ["src/components/chat/ChatMessage.tsx", /<p\s+dir="auto"[^>]*>\s*\{title\}/],
     ["src/components/DictionaryView.tsx", /<span\s+dir="auto"[^>]*>\s*\{agentName\}/],
     [
-      "src/components/notes/MeetingTranscriptChat.tsx",
       /<span\s+dir="auto"[^>]*>\s*\{speakerLabel\}/,
     ],
-    ["src/components/notes/MeetingTranscriptChat.tsx", /<span\s+dir="auto"[^>]*>\s*\{text\}/],
     [
-      "src/components/notes/MeetingTranscriptChat.tsx",
       /<span\s+dir="auto"[^>]*>\s*\{segment\.suggestedName\}/,
     ],
     [
-      "src/components/notes/MeetingTranscriptChat.tsx",
       /<span\s+dir="auto"[^>]*>\s*\{displayLabel\}/,
     ],
-    ["src/components/notes/CreateSpaceDialog.tsx", /<span\s+dir="auto"[^>]*>\s*\{item\.name\}/],
-    ["src/components/notes/CreateSpaceDialog.tsx", /<p\s+dir="auto"[^>]*>\s*\{workspace\.name\}/],
-    ["src/components/notes/CreateSpaceDialog.tsx", /<span\s+dir="auto"[^>]*>\s*\{team\.name\}/],
-    ["src/components/notes/SpaceMembersPanel.tsx", /<span\s+dir="auto"[^>]*>\s*\{teamRef\.name\}/],
-    ["src/components/notes/SpaceMembersPanel.tsx", /<span\s+dir="auto"[^>]*>\s*\{team\.name\}/],
     [
       "src/components/settings/WorkspaceSection.tsx",
       /<h2\s+dir="auto"[^>]*>\s*\{workspace\.name\}/,
     ],
     ["src/components/settings/WorkspaceSection.tsx", /<span\s+dir="auto"[^>]*>\s*\{w\.name\}/],
-    ["src/components/notes/NoteEditor.tsx", /<span\s+dir="auto"[^>]*>\s*\{space\.name\}/],
-    ["src/components/notes/NoteEditor.tsx", /<span\s+dir="auto"[^>]*>\s*\{folderName\}/],
     [
-      "src/components/notes/NoteEditor.tsx",
       /<span\s+dir="auto"[^>]*>\s*\{defaultFolderDisplayName\(folder, t\)\}/,
     ],
   ];

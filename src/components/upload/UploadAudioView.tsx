@@ -71,7 +71,7 @@ import { isTranscriptionContextAllowed } from "../../stores/policyRules";
 import { usePolicyStore } from "../../stores/policyStore";
 import { usePolicySnapshot, useTranscriptionContextAllowed } from "../../hooks/usePolicy";
 import { byokFileSizeLimit, resolveTranscriptionRoute } from "../../helpers/transcriptionRoute";
-import { saveUploadNote, uploadTitleFallback } from "../../services/uploadNotes";
+
 import { useManagedScopeResolution } from "../../stores/enterpriseIdentityStore";
 import { isManagedTranscriptionActive } from "../../services/managedTranscription";
 import { UploadCompleteWarnings, UploadModelSettingsButton } from "./UploadAudioFeedback";
@@ -718,26 +718,6 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         );
         setDiarizationWarning(!!res.diarizationWarning);
 
-        let title: string;
-        if (currentFile.fromUrl) {
-          title = currentFile.name;
-        } else {
-          const aiTitle = await generateTitle(res.text);
-          if (runId !== runIdRef.current) return;
-          title = aiTitle || uploadTitleFallback(res.text, currentFile.name);
-        }
-
-        const noteRes = await saveUploadNote({
-          title,
-          text: res.text,
-          sourceName: currentFile.name,
-          folderId: selectedFolderId ? Number(selectedFolderId) : null,
-          diarization,
-          durationSeconds: res.durationSeconds,
-          segments: res.segments,
-        });
-        if (runId !== runIdRef.current) return;
-        if (noteRes.success && noteRes.note) setNoteId(noteRes.note.id);
         if (currentTempPath) {
           window.electronAPI.deleteTempFile(currentTempPath);
           setDownloadedTempPath(null);
@@ -1240,8 +1220,6 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               folders={folders}
               selectedFolderId={selectedFolderId}
               handleFolderChange={handleFolderChange}
-              noteId={noteId}
-              onNoteCreated={onNoteCreated}
               reset={reset}
             />
           )}
@@ -1891,8 +1869,6 @@ interface CompleteViewProps {
   folders: FolderItem[];
   selectedFolderId: string;
   handleFolderChange: (val: string) => void;
-  noteId: number | null;
-  onNoteCreated?: (noteId: number, folderId: number | null) => void;
   reset: () => void;
 }
 
@@ -1904,10 +1880,9 @@ function CompleteView({
   folders,
   selectedFolderId,
   handleFolderChange,
-  noteId,
-  onNoteCreated,
   reset,
 }: CompleteViewProps) {
+  const [copied, setCopied] = React.useState(false);
   return (
     <div className="flex flex-col items-center" style={{ animation: "float-up 0.3s ease-out" }}>
       <div className="relative w-12 h-12 mb-4">
@@ -1973,18 +1948,18 @@ function CompleteView({
       )}
 
       <div className="flex items-center gap-2">
-        {noteId != null && onNoteCreated && (
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() =>
-              onNoteCreated(noteId, selectedFolderId ? Number(selectedFolderId) : null)
-            }
-            className="h-8 text-xs"
-          >
-            {t("notes.upload.openNote")}
-          </Button>
-        )}
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => {
+            navigator.clipboard.writeText(result);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+          className="h-8 text-xs"
+        >
+          {copied ? t("common.copied") : t("common.copy")}
+        </Button>
         <Button
           variant="ghost"
           size="sm"

@@ -62,13 +62,7 @@ function useIsNarrowWindow(): boolean {
 import { getCachedPlatform } from "../utils/platform";
 import { isAccessibilitySkipped } from "../utils/permissions";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
-import {
-  setActiveNoteId,
-  setActiveFolderId,
-  navigateToContainer,
-  useActiveNoteId,
-  initializeNotes,
-} from "../stores/noteStore";
+
 import { fetchProviders as fetchStreamingProviders } from "../stores/streamingProvidersStore";
 import {
   executeTranslationChain,
@@ -78,8 +72,7 @@ import {
 import { applyChineseScript, resolveChineseScriptTarget } from "../utils/chineseScript";
 import { getAgentName } from "../utils/agentName";
 import HistoryView from "./HistoryView";
-import BackgroundActionToastListener from "./notes/BackgroundActionToastListener";
-import SpaceSyncToastListener from "./notes/SpaceSyncToastListener";
+
 import { syncService } from "../services/SyncService.js";
 import logger from "../utils/logger";
 import AcceptInvitationModal from "./AcceptInvitationModal";
@@ -100,10 +93,10 @@ const SEMANTIC_REINDEX_VERSION = 2;
 const SettingsModal = React.lazy(() => import("./SettingsModal"));
 const ReferralModal = React.lazy(() => import("./ReferralModal"));
 const InviteTeammateDialog = React.lazy(() => import("./InviteTeammateDialog"));
-const PersonalNotesView = React.lazy(() => import("./notes/PersonalNotesView"));
+
 const InsightsView = React.lazy(() => import("./InsightsView"));
 const DictionaryView = React.lazy(() => import("./DictionaryView"));
-const UploadAudioView = React.lazy(() => import("./notes/UploadAudioView"));
+const UploadAudioView = React.lazy(() => import("./upload/UploadAudioView"));
 const IntegrationsView = React.lazy(() => import("./IntegrationsView"));
 const ChatView = React.lazy(() => import("./chat/ChatView"));
 const CommandSearch = React.lazy(() => import("./CommandSearch"));
@@ -128,10 +121,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [showReferrals, setShowReferrals] = useState(false);
   const [showInviteTeam, setShowInviteTeam] = useState(false);
   const [invitationToken, setInvitationToken] = useState<string | null>(null);
-  const [invitationNotesEntry, setInvitationNotesEntry] = useState<{
-    workspaceId: string;
-    teamIds: string[];
-  } | null>(null);
+
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
   const [activeView, setActiveView] = useState<ControlPanelView>("home");
@@ -145,9 +135,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     leaveToggle: leaveSidebarToggle,
   } = useCollapsibleSidebar();
   const isNarrowWindow = useIsNarrowWindow();
-  const activeNoteId = useActiveNoteId();
-  const isSidePanelLayout =
-    isNarrowWindow && activeView === "personal-notes" && activeNoteId != null;
+  const isSidePanelLayout = false;
   const [topBarActions, setTopBarActions] = useState<HTMLDivElement | null>(null);
   const [gpuBannerDismissed, setGpuBannerDismissed] = useState(
     () => localStorage.getItem("gpuBannerDismissedUnified") === "true"
@@ -354,28 +342,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
 
   useEffect(() => {
-    const drain = async () => {
-      const data = await window.electronAPI?.getPendingNoteNavigation?.();
-      if (!data) return;
-      if (data.folderId) {
-        setActiveFolderId(data.folderId);
-        initializeNotes(null, 50, data.folderId);
-      } else if (data.generateSummary) {
-        // The editor mounts only for a loaded note, and one that sits outside any
-        // folder belongs to no container this panel has fetched. Without this the
-        // summary request would arm and never reach an editor.
-        initializeNotes(null, 50, null);
-      }
-      setActiveNoteId(data.noteId);
-      setActiveView("personal-notes");
-      if (data.generateSummary) setSummaryRequest({ noteId: data.noteId });
-    };
-    drain();
-    const cleanup = window.electronAPI?.onNoteNavigationPending?.(drain);
-    return () => cleanup?.();
-  }, []);
-
-  useEffect(() => {
     const cleanup = window.electronAPI?.onShowSettings?.(() => {
       setShowSettings(true);
     });
@@ -403,26 +369,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     fetchStreamingProviders();
   }, []);
 
-
-  // Set by the auto-end card's summary action, which routes through the note
-  // navigation queue so the panel is surfaced and the note opened first.
-  const [summaryRequest, setSummaryRequest] = useState<{ noteId: number } | null>(null);
-  const handleSummaryRequestHandled = useCallback(() => setSummaryRequest(null), []);
-  // A request the editor never consumed must not stay armed: once the user is
-  // looking at another note, or has left Notes altogether, generating a summary
-  // for the auto-ended one would be a surprise they no longer asked for.
-  // Cancelling needs an already-armed request, so the drain's own updates
-  // (note, view and request together) never trip it.
-  useEffect(() => {
-    if (!summaryRequest) return;
-    if (activeNoteId !== summaryRequest.noteId || activeView !== "personal-notes") {
-      setSummaryRequest(null);
-    }
-  }, [activeNoteId, activeView, summaryRequest]);
-
-  const handleExitSidePanel = useCallback(() => {
-    setActiveNoteId(null);
-  }, []);
+  const handleExitSidePanel = useCallback(() => {}, []);
 
   const copyToClipboard = useCallback(
     async (text: string) => {
@@ -883,10 +830,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       <AcceptInvitationModal
         token={invitationToken}
         onClose={() => setInvitationToken(null)}
-        onAccepted={(entry) => {
-          setInvitationNotesEntry(entry);
-          setActiveView("personal-notes");
-        }}
+        onAccepted={() => {}}
       />
 
       <JoinYourTeamModal
@@ -894,7 +838,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
         domain={user?.email?.split("@")[1] ?? null}
         onDismiss={dismissJoinable}
         onRequested={markRequested}
-        onJoined={() => setActiveView("personal-notes")}
+        onJoined={() => setActiveView("home")}
       />
 
       {/* Always mounted so the palette chunk is warm and Radix can play its exit animation. */}
@@ -903,16 +847,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           open={showSearch}
           onOpenChange={setShowSearch}
           transcriptions={history}
-          onNoteSelect={(id, folderId, spaceId) => {
-            if (folderId != null) setActiveFolderId(folderId);
-            else if (spaceId != null) navigateToContainer(spaceId, null);
-            setActiveNoteId(id);
-            setActiveView("personal-notes");
-          }}
-          onContainerSelect={(spaceId, folderId) => {
-            navigateToContainer(spaceId, folderId);
-            setActiveView("personal-notes");
-          }}
+          onNoteSelect={() => {}}
+          onContainerSelect={() => {}}
           onTranscriptSelect={() => {
             setActiveView("home");
           }}
@@ -1132,23 +1068,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                   <ChatView />
                 </Suspense>
               )}
-              {activeView === "personal-notes" && (
-                <Suspense fallback={null}>
-                  <PersonalNotesView
-                    onOpenSettings={(section) => {
-                      setSettingsSection(section);
-                      setShowSettings(true);
-                    }}
 
-                    summaryRequest={summaryRequest}
-                    onSummaryRequestHandled={handleSummaryRequestHandled}
-                    invitationEntry={invitationNotesEntry}
-                    onInvitationEntryHandled={() => setInvitationNotesEntry(null)}
-                    topBarActions={topBarActions}
-                    onNewChat={agentAllowedByPolicy ? () => setActiveView("chat") : undefined}
-                  />
-                </Suspense>
-              )}
               {activeView === "dictionary" && (
                 <Suspense fallback={null}>
                   <DictionaryView />
@@ -1157,11 +1077,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
               {activeView === "upload" && policyActionsAllowed && (
                 <Suspense fallback={null}>
                   <UploadAudioView
-                    onNoteCreated={(noteId, folderId) => {
-                      setActiveNoteId(noteId);
-                      if (folderId) setActiveFolderId(folderId);
-                      setActiveView("personal-notes");
-                    }}
                     onOpenSettings={(section) => {
                       setSettingsSection(section);
                       setShowSettings(true);
@@ -1184,8 +1099,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           </div>
         </main>
       </div>
-      <BackgroundActionToastListener />
-      <SpaceSyncToastListener />
+
     </div>
   );
 }
