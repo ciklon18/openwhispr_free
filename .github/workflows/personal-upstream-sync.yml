@@ -56,8 +56,10 @@ jobs:
             exit 1
           fi
 
-          git checkout $BEFORE_SHA -- .github/workflows/
-          git commit --amend --no-verify --no-edit
+          if ! git diff --quiet $BEFORE_SHA HEAD -- .github/workflows/; then
+            git checkout $BEFORE_SHA -- .github/workflows/
+            git commit --amend --no-verify --no-edit
+          fi
 
           git push origin main
 
