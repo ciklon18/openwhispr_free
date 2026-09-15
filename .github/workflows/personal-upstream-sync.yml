@@ -49,8 +49,8 @@ jobs:
 
           if ! git merge --no-edit upstream/main -m "chore: sync fork main with upstream/main"; then
             git merge --abort || true
-            gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" || true
-            gh issue create --label upstream-sync --assignee ciklon18 \
+            gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" --repo ciklon18/openwhispr_free || true
+            gh issue create --label upstream-sync --assignee ciklon18 --repo ciklon18/openwhispr_free \
               --title "Upstream sync: fork main conflicts with OpenWhispr/openwhispr" \
               --body "The weekly sync could not merge upstream/main into fork main. Resolve it manually, then re-run this workflow."
             exit 1
@@ -67,7 +67,7 @@ jobs:
         id: behind
         run: |
           git fetch origin personal/windows-dictation
-          echo "count=$(git rev-list --count personal/windows-dictation..main)" >> "$GITHUB_OUTPUT"
+          echo "count=$(git rev-list --count origin/personal/windows-dictation..main)" >> "$GITHUB_OUTPUT"
 
       - name: Try the merge on a throwaway branch
         id: merge
@@ -88,9 +88,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if ! gh pr list --head sync/upstream-main --base personal/windows-dictation --json number --jq '.[0].number' | grep -q .; then
-            COMMITS="$(git log --oneline personal/windows-dictation..main | head -50)"
-            gh pr create --base personal/windows-dictation --head sync/upstream-main \
+          if ! gh pr list --head sync/upstream-main --base personal/windows-dictation --repo ${{ github.repository }} --json number --jq '.[0].number' | grep -q .; then
+            COMMITS="$(git log --oneline origin/personal/windows-dictation..main | head -50)"
+            gh pr create --base personal/windows-dictation --head sync/upstream-main --repo ${{ github.repository }} \
               --title "chore: merge upstream main into personal/windows-dictation" \
               --body "Automated upstream sync passed merge cleanly. Upstream commits included:\n\n\`\`\`\n${COMMITS}\n\`\`\`\n\nCI must be green before merging. Close this PR instead if a change is unwanted."
           fi
@@ -100,15 +100,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" || true
+          gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" --repo ${{ github.repository }} || true
           FILES="$(cat /tmp/conflicts.txt | head -50)"
-          COMMITS="$(git log --oneline personal/windows-dictation..main | head -30)"
-          EXISTING="$(gh issue list --label upstream-sync --state open --json number --jq '.[0].number')"
+          COMMITS="$(git log --oneline origin/personal/windows-dictation..main | head -30)"
+          EXISTING="$(gh issue list --label upstream-sync --state open --repo ${{ github.repository }} --json number --jq '.[0].number')"
           BODY="The weekly sync could NOT merge upstream into personal/windows-dictation — resolve manually, then re-run this workflow or merge by hand.\n\nConflicting files:\n\`\`\`\n${FILES}\n\`\`\`\n\nNew upstream commits:\n\`\`\`\n${COMMITS}\n\`\`\`"
           if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --body "$BODY"
+            gh issue comment "$EXISTING" --body "$BODY" --repo ${{ github.repository }}
           else
-            gh issue create --label upstream-sync --assignee ciklon18 \
+            gh issue create --label upstream-sync --assignee ciklon18 --repo ${{ github.repository }} \
               --title "Upstream sync conflicts in personal/windows-dictation" \
               --body "$BODY"
           fi
