@@ -1,0 +1,144 @@
+name: Personal Windows build
+
+# Builds the unsigned Windows installer for the personal fork and publishes
+# it to the rolling `personal-latest` pre-release, so it can be downloaded
+# without touching a terminal. Runs on every push to the branch (stale runs
+# are cancelled) and on manual dispatch.
+#
+# Deliberately does NOT call `npm run build:win` (its prebuild hook pulls
+# brand fonts that need private access and runs macOS compiles). Instead it
+# mirrors upstream release.yml: explicit binary downloads, then renderer +
+# electron-builder directly. Meeting/AEC, diarization-model and brand-font
+# downloads are skipped on purpose (cut from this fork or fetched at runtime).
+
+on:
+  push:
+    branches: [personal/windows-dictation]
+  workflow_dispatch:
+
+concurrency:
+  group: personal-build-windows
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install platform-specific native binaries
+        run: npm install @rollup/rollup-win32-x64-msvc lightningcss-win32-x64-msvc @tailwindcss/oxide-win32-x64-msvc --no-save
+
+      - name: Cache native binaries
+        uses: actions/cache@v4
+        with:
+          path: resources/bin
+          key: personal-windows-x64-bin-${{ hashFiles('scripts/download-*.js', 'resources/windows-system-audio-helper.c', 'resources/windows-mic-listener.c') }}
+
+      - name: Download whisper.cpp binaries
+        run: node scripts/download-whisper-cpp.js --current
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download llama-server binaries
+        run: node scripts/download-llama-server.js --current
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download sherpa-onnx binaries
+        run: node scripts/download-sherpa-onnx.js --current
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download yt-dlp binary
+        run: node scripts/download-yt-dlp.js --current
+
+      - name: Download Qdrant binary
+        run: node scripts/download-qdrant.js --current
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download whisper VAD model
+        run: node scripts/download-whisper-vad-model.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download nircmd.exe
+        run: node scripts/download-nircmd.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download windows-fast-paste.exe
+        run: node scripts/download-windows-fast-paste.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download windows-key-listener.exe
+        run: node scripts/download-windows-key-listener.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compile windows-mic-listener.exe
+        shell: cmd
+        run: |
+          if not exist resources\bin mkdir resources\bin
+          cl /O2 /nologo resources\windows-mic-listener.c /Fe:resources\bin\windows-mic-listener.exe ole32.lib oleaut32.lib
+
+      - name: Download windows-system-audio-helper.exe
+        run: node scripts/download-windows-system-audio-helper.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify windows-system-audio-helper.exe
+        shell: bash
+        run: test -f resources/bin/windows-system-audio-helper.exe
+
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/electron/Cache
+          key: windows-electron-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: windows-electron-
+
+      - name: Build renderer
+        run: npm run build:renderer
+
+      - name: Build Windows installer (unsigned)
+        run: npx electron-builder --win --publish never
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish rolling pre-release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=personal-latest
+          gh release delete "$TAG" --cleanup-tag -y || true
+          gh release create "$TAG" --prerelease \
+            --title "Personal Windows build (latest)" \
+            --notes "Automated unsigned build of personal/windows-dictation @ ${GITHUB_SHA}. Windows SmartScreen will warn (no code signing)." \
+            dist/*.exe
