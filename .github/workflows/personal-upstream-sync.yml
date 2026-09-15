@@ -69,7 +69,7 @@ jobs:
         id: merge
         if: steps.behind.outputs.count != '0'
         run: |
-          git checkout -B sync/upstream-main personal/windows-dictation
+          git checkout -B sync/upstream-main origin/personal/windows-dictation
           if git merge --no-edit main; then
             echo "clean=true" >> "$GITHUB_OUTPUT"
             git push -f origin sync/upstream-main
