@@ -42,6 +42,9 @@ jobs:
           git remote add upstream https://github.com/OpenWhispr/openwhispr.git 2>/dev/null || true
           git fetch upstream main
           git checkout main
+
+          BEFORE_SHA=$(git rev-parse HEAD)
+
           if ! git merge --no-edit upstream/main -m "chore: sync fork main with upstream/main"; then
             git merge --abort || true
             gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" || true
@@ -50,6 +53,10 @@ jobs:
               --body "The weekly sync could not merge upstream/main into fork main. Resolve it manually, then re-run this workflow."
             exit 1
           fi
+
+          git checkout $BEFORE_SHA -- .github/workflows/
+          git commit --amend --no-verify --no-edit
+
           git push origin main
 
       - name: Check if personal branch is behind
