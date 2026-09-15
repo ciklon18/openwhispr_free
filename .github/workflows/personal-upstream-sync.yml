@@ -1,0 +1,104 @@
+name: Personal upstream sync
+
+# Tracks OpenWhispr/openwhispr and pulls its changes into this fork WITHOUT
+# breaking the personal branch:
+#   1. Fast-forwards (via merge) fork `main` with upstream `main`.
+#   2. If personal/windows-dictation is behind, tries the merge on a throwaway
+#      `sync/upstream-main` branch.
+#   3. Clean merge  -> pushes the branch and opens/updates a PR against
+#      personal/windows-dictation (CI runs on it; a human merges it).
+#   4. Conflicts    -> opens an issue assigned to the owner with the conflict
+#      file list and NEVER pushes a broken merge.
+#
+# Runs weekly on Mondays 06:00 UTC and on manual dispatch. NOTE: scheduled
+# runs only fire from the default branch, which is why this file lives on
+# `main` and NOT on personal/windows-dictation.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync fork main with upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/OpenWhispr/openwhispr.git 2>/dev/null || true
+          git fetch upstream main
+          git checkout main
+          if ! git merge --no-edit upstream/main -m "chore: sync fork main with upstream/main"; then
+            git merge --abort || true
+            gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" || true
+            gh issue create --label upstream-sync --assignee ciklon18 \
+              --title "Upstream sync: fork main conflicts with OpenWhispr/openwhispr" \
+              --body "The weekly sync could not merge upstream/main into fork main. Resolve it manually, then re-run this workflow."
+            exit 1
+          fi
+          git push origin main
+
+      - name: Check if personal branch is behind
+        id: behind
+        run: |
+          git fetch origin personal/windows-dictation
+          echo "count=$(git rev-list --count personal/windows-dictation..main)" >> "$GITHUB_OUTPUT"
+
+      - name: Try the merge on a throwaway branch
+        id: merge
+        if: steps.behind.outputs.count != '0'
+        run: |
+          git checkout -B sync/upstream-main personal/windows-dictation
+          if git merge --no-edit main; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+            git push -f origin sync/upstream-main
+          else
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+            git diff --name-only --diff-filter=U > /tmp/conflicts.txt || true
+            git merge --abort || true
+          fi
+
+      - name: Open or update the sync PR
+        if: steps.merge.outputs.clean == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh pr list --head sync/upstream-main --base personal/windows-dictation --json number --jq '.[0].number' | grep -q .; then
+            COMMITS="$(git log --oneline personal/windows-dictation..main | head -50)"
+            gh pr create --base personal/windows-dictation --head sync/upstream-main \
+              --title "chore: merge upstream main into personal/windows-dictation" \
+              --body "Automated upstream sync passed merge cleanly. Upstream commits included:\n\n\`\`\`\n${COMMITS}\n\`\`\`\n\nCI must be green before merging. Close this PR instead if a change is unwanted."
+          fi
+
+      - name: Report conflicts to the owner
+        if: steps.merge.outputs.clean == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" || true
+          FILES="$(cat /tmp/conflicts.txt | head -50)"
+          COMMITS="$(git log --oneline personal/windows-dictation..main | head -30)"
+          EXISTING="$(gh issue list --label upstream-sync --state open --json number --jq '.[0].number')"
+          BODY="The weekly sync could NOT merge upstream into personal/windows-dictation — resolve manually, then re-run this workflow or merge by hand.\n\nConflicting files:\n\`\`\`\n${FILES}\n\`\`\`\n\nNew upstream commits:\n\`\`\`\n${COMMITS}\n\`\`\`"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --label upstream-sync --assignee ciklon18 \
+              --title "Upstream sync conflicts in personal/windows-dictation" \
+              --body "$BODY"
+          fi
+          exit 1
