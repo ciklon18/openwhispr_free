@@ -43,6 +43,7 @@ jobs:
           git fetch upstream main
           git fetch origin main
           git checkout main
+          git reset --hard origin/main
 
           BEFORE_SHA=$(git rev-parse HEAD)
 
