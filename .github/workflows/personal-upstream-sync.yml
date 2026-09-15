@@ -23,6 +23,9 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  # the merge can touch upstream workflow files — pushing those back
+  # requires the workflows permission (GitHub refuses App tokens otherwise)
+  workflows: write
 
 jobs:
   sync:
