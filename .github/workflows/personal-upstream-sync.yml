@@ -43,7 +43,6 @@ jobs:
           git fetch upstream main
           git checkout main
 
-          git checkout -B _pre_merge_workflows -- .github/workflows/personal-upstream-sync.yml .github/workflows/personal-ci.yml .github/workflows/personal-build-windows.yml 2>/dev/null || true
           BEFORE_SHA=$(git rev-parse HEAD)
 
           if ! git merge --no-edit upstream/main -m "chore: sync fork main with upstream/main"; then
@@ -55,10 +54,8 @@ jobs:
             exit 1
           fi
 
-          git checkout $BEFORE_SHA -- .github/workflows/personal-upstream-sync.yml .github/workflows/personal-ci.yml .github/workflows/personal-build-windows.yml 2>/dev/null || true
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: restore personal workflows after upstream merge" --no-verify
-          fi
+          git checkout $BEFORE_SHA -- .github/workflows/
+          git commit --amend --no-verify --no-edit
 
           git push origin main
 
