@@ -2,13 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Code2, Info } from "./icons";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { SettingsPanel, SettingsPanelRow } from "./ui/SettingsSection";
 import ApiKeysSection from "./ApiKeysSection";
 import CliIntegrationCard from "./CliIntegrationCard";

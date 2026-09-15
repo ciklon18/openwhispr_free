@@ -1479,7 +1479,6 @@ export default function SettingsPage({
     showAlert: showAlertDialog,
   });
 
-
   // Agent hotkey setters resolve to false when main-process registration fails;
   // surface it and return the result so HotkeyListInput rolls the row back.
   const [isAgentHotkeyCommitting, setIsAgentHotkeyCommitting] = useState(false);
@@ -1514,7 +1513,6 @@ export default function SettingsPage({
       ),
     [voiceAgentKey, translationKey, t]
   );
-
 
   const validateVoiceAgentHotkey = useCallback(
     (hotkey: string) =>
@@ -3149,8 +3147,6 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-
-
               </SettingsPanel>
             </div>
 
@@ -4084,8 +4080,6 @@ EOF`,
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>
-
-
           </div>
         );
 

@@ -69,7 +69,6 @@ class WindowManager {
     this._agentDictationPillHorizontalDirection = "left";
     this._agentDictationPillScreenListener = null;
 
-
     this.tray = null;
     this.hotkeyManager = new HotkeyManager();
     this.dragManager = new DragManager();

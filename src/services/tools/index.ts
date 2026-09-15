@@ -47,6 +47,5 @@ export function createToolRegistry(settings: ToolRegistrySettings): ToolRegistry
     registry.register(webSearchTool);
   }
 
-
   return registry;
 }

@@ -10,7 +10,13 @@ const fs = require("fs");
 const os = require("os");
 const { promisify } = require("util");
 const execFileAsync = promisify(require("child_process").execFile);
-const { ENV_REF_RE, isEnvRef, envRefName, usableSecret, classifySecretInput } = require("./envRef.cjs");
+const {
+  ENV_REF_RE,
+  isEnvRef,
+  envRefName,
+  usableSecret,
+  classifySecretInput,
+} = require("./envRef.cjs");
 
 const ENV_EXPORT_SENTINEL = "__OW_ENV__";
 
@@ -103,7 +109,11 @@ function passwdLoginShell() {
   }
 }
 
-function resolveLoginShell(env = process.env, existsSync = fs.existsSync, passwdShell = passwdLoginShell()) {
+function resolveLoginShell(
+  env = process.env,
+  existsSync = fs.existsSync,
+  passwdShell = passwdLoginShell()
+) {
   if (env.SHELL) {
     return isTrustedLoginShell(env.SHELL) && existsSync(env.SHELL) ? env.SHELL : null;
   }

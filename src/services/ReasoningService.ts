@@ -265,8 +265,7 @@ class ReasoningService extends BaseReasoningService {
     config: Pick<ReasoningConfig, "baseUrl" | "customApiKey">
   ): Promise<{ apiKey: string; baseURL?: string }> {
     const providerKey = toByokStreamProvider(provider);
-    const overrideKey =
-      providerKey === "custom" ? await resolveApiKey(config.customApiKey) : "";
+    const overrideKey = providerKey === "custom" ? await resolveApiKey(config.customApiKey) : "";
     const canFallBackToSharedKey =
       providerKey !== "custom" || canBorrowCleanupCustomKey(config.baseUrl);
     const apiKey = overrideKey || (canFallBackToSharedKey ? await this.getApiKey(providerKey) : "");

@@ -221,8 +221,6 @@ export default function HistoryView({
               </div>
             )}
           </div>
-
-
         </div>
       </div>
     </div>

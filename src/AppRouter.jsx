@@ -28,8 +28,6 @@ export default function AppRouter() {
   useTheme();
   const params = window.location.search;
 
-
-
   if (params.includes("agent-dictation-pill=true")) {
     return <AgentDictationPillOverlay />;
   }

@@ -340,7 +340,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     }
   }, [authLoaded, isSignedIn]);
 
-
   useEffect(() => {
     const cleanup = window.electronAPI?.onShowSettings?.(() => {
       setShowSettings(true);
@@ -773,7 +772,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   return (
     <div className="h-screen bg-surface-window flex flex-col">
-
       <ConfirmDialog
         open={confirmDialog.open}
         onOpenChange={hideConfirmDialog}
@@ -1099,7 +1097,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           </div>
         </main>
       </div>
-
     </div>
   );
 }

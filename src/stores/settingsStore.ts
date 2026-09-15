@@ -1384,11 +1384,7 @@ function debouncedSaveSecret(
             useSettingsStore.setState({ [rollback.storeKey]: rollback.previous });
           }
         }
-        logger.warn(
-          "Rejected secret persist",
-          { provider, reason: result.reason },
-          "settings"
-        );
+        logger.warn("Rejected secret persist", { provider, reason: result.reason }, "settings");
       })
       .catch((err) => {
         logger.warn(
@@ -3441,7 +3437,7 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
-      try {
+    try {
       await window.electronAPI.setAutoUpdatesEnabled?.(
         useSettingsStore.getState().autoUpdatesEnabled
       );
@@ -3453,7 +3449,7 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
-      try {
+    try {
       const currentState = useSettingsStore.getState();
       await window.electronAPI.setWhisperVadConfig?.({
         dictationSileroEnabled: currentState.dictationSileroEnabled,
@@ -3541,7 +3537,7 @@ export async function initializeSettings(): Promise<void> {
 
     useSettingsStore.setState({ [key]: value });
 
-      if (key === "uiLanguage" && typeof value === "string") {
+    if (key === "uiLanguage" && typeof value === "string") {
       void i18n.changeLanguage(value);
     }
   });

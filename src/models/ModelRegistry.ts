@@ -439,7 +439,6 @@ export function getStreamingTranscriptionProviders(): TranscriptionProviderData[
     .filter((p) => p.models.length > 0);
 }
 
-
 export function getTranscriptionProvider(
   providerId: string
 ): TranscriptionProviderData | undefined {

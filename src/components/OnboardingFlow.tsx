@@ -1104,8 +1104,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 a short window they run past the footer. The shell never scrolls,
                 so the content scrolls here instead — px-1/pb-1 keeps focus rings
                 off the clip edge. */}
-            <div className="onboarding-shell-scroll min-h-0 w-full flex-1 overflow-y-auto px-1 pb-1">
-            </div>
+            <div className="onboarding-shell-scroll min-h-0 w-full flex-1 overflow-y-auto px-1 pb-1"></div>
           </div>
         );
 

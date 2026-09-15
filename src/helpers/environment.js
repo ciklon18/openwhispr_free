@@ -472,7 +472,6 @@ class EnvironmentManager {
     return result;
   }
 
-
   getActivationMode() {
     const mode = this._getKey("ACTIVATION_MODE");
     return mode === "push" ? "push" : "tap";

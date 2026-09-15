@@ -1,5 +1,10 @@
 import type { InferenceProvider } from "./types";
-import { API_ENDPOINTS, TOKEN_LIMITS, buildApiUrl, normalizeBaseUrl } from "../../../config/constants";
+import {
+  API_ENDPOINTS,
+  TOKEN_LIMITS,
+  buildApiUrl,
+  normalizeBaseUrl,
+} from "../../../config/constants";
 import { getCloudModel, getOpenAiApiConfig } from "../../../models/ModelRegistry";
 import { getSettings } from "../../../stores/settingsStore";
 import { withRetry, createApiRetryStrategy, httpError } from "../../../utils/retry";
@@ -192,7 +197,9 @@ export const openaiProvider: InferenceProvider = {
       overrideKey ||
       (canFallBackToSharedKey
         ? await resolveApiKey(
-            await ctx.getApiKey(isCustomProvider ? "custom" : isOpenRouter ? "openrouter" : "openai")
+            await ctx.getApiKey(
+              isCustomProvider ? "custom" : isOpenRouter ? "openrouter" : "openai"
+            )
           )
         : "");
 
@@ -320,7 +327,9 @@ export const openaiProvider: InferenceProvider = {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  ...(usableSecret(apiKey) ? { Authorization: `Bearer ${usableSecret(apiKey)}` } : {}),
+                  ...(usableSecret(apiKey)
+                    ? { Authorization: `Bearer ${usableSecret(apiKey)}` }
+                    : {}),
                   ...openCodeHeaders,
                 },
                 body: JSON.stringify(requestBody),

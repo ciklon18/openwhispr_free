@@ -360,7 +360,6 @@ export function getTranscriptionSelection(
   settings: SettingsState,
   context: TranscriptionPolicyContext
 ): TranscriptionSelection {
-
   if (context === "upload") {
     return {
       mode: settings.uploadTranscriptionMode,

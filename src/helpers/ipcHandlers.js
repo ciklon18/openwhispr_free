@@ -1551,7 +1551,6 @@ class IPCHandlers {
       return this.windowManager.getMainWindowHorizontalDirection();
     });
 
-
     ipcMain.handle("resize-main-window", (event, sizeKey) => {
       return this.windowManager.resizeMainWindow(sizeKey);
     });
@@ -6107,11 +6106,8 @@ class IPCHandlers {
     });
     const resolveEnterpriseRuntime = async (event, provider, model, config = {}) => {
       const { resolveManualEnterpriseRuntime } = require("./enterpriseProviderErrors");
-      const manual = resolveManualEnterpriseRuntime(
-        config,
-        provider,
-        model,
-        (value) => this.environmentManager.resolveSecretRef(value)
+      const manual = resolveManualEnterpriseRuntime(config, provider, model, (value) =>
+        this.environmentManager.resolveSecretRef(value)
       );
       const context = config.managedContext;
       if (!context) return manual;
@@ -8941,7 +8937,6 @@ class IPCHandlers {
       }
     };
 
-
     const streamingStartFailure = (err) => {
       const result = toPolicyFailure(err);
       if (err.messageKey) result.messageKey = err.messageKey;
@@ -11220,7 +11215,6 @@ class IPCHandlers {
         return { success: false, error: error.message };
       }
     });
-
 
     ipcMain.handle("get-pending-note-navigation", async () => {
       return this.windowManager?.consumePendingNoteNavigation() ?? null;

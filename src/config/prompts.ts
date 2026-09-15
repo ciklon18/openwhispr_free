@@ -45,9 +45,7 @@ const TOOL_INSTRUCTIONS: Record<string, string> = {
     "Use update_snippets when the user asks to create, change, or delete a snippet (a spoken trigger that expands into saved text). If the user did not state both the trigger and the full replacement text, ask before saving.",
   update_dictionary:
     "Use update_dictionary when the user asks to add, remove, or fix the spelling of words in their custom dictionary; the current words are listed under Custom Dictionary. When asked to clean up the dictionary, list the exact removals you propose (duplicates, misspellings, casing variants, ordinary words) and wait for confirmation before removing anything the user did not name.",
-
 };
-
 
 export function getAgentSystemPrompt(availableTools?: string[], noteContext?: string): string {
   let prompt = resolvePrompt("chatAgent", { agentName: null });
@@ -57,7 +55,6 @@ export function getAgentSystemPrompt(availableTools?: string[], noteContext?: st
     if (toolLines.length > 0) {
       prompt += "\n\nYou have access to tools. " + toolLines.join(" ");
     }
-
   }
 
   if (noteContext) {
