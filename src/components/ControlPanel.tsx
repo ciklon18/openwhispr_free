@@ -53,10 +53,12 @@ import ControlPanelTopBar from "./ControlPanelTopBar";
 import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
 import MeetingRecordingMount from "./MeetingRecordingMount";
 import MeetingRecordingPill from "./notes/MeetingRecordingPill";
+import NewNoteMenu from "./notes/NewNoteMenu";
 
 import { getCachedPlatform } from "../utils/platform";
 import { isAccessibilitySkipped } from "../utils/permissions";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
+import { useCreateNote } from "../hooks/useCreateNote";
 import {
   setActiveNoteId,
   setActiveFolderId,
@@ -129,6 +131,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [invitationNotesEntry, setInvitationNotesEntry] = useState<{
     workspaceId: string;
     teamIds: string[];
+    spaceIds: string[];
   } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
@@ -154,7 +157,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     folderId: number;
     event: any;
   } | null>(null);
-  const [topBarActions, setTopBarActions] = useState<HTMLDivElement | null>(null);
   const [gpuBannerDismissed, setGpuBannerDismissed] = useState(
     () => localStorage.getItem("gpuBannerDismissedUnified") === "true"
   );
@@ -195,6 +197,12 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   } = useUpdater();
 
   const agentAllowedByPolicy = usePolicyStore(isAgentAllowed);
+  const { createNote } = useCreateNote();
+  // The note is created before the view switches so Notes mounts with it already open.
+  const handleNewNote = useCallback(async () => {
+    await createNote();
+    setActiveView("personal-notes");
+  }, [createNote]);
   const policyActionsAllowed = usePolicyStore((state) => isPolicyActionAllowed(state));
   useEffect(() => {
     if (!isControlPanelViewAllowed(activeView, agentAllowedByPolicy, policyActionsAllowed)) {
@@ -418,15 +426,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       if (data.folderId) {
         setActiveFolderId(data.folderId);
         initializeNotes(null, 50, data.folderId);
-      } else if (data.generateSummary) {
-        // The editor mounts only for a loaded note, and one that sits outside any
-        // folder belongs to no container this panel has fetched. Without this the
-        // summary request would arm and never reach an editor.
-        initializeNotes(null, 50, null);
       }
       setActiveNoteId(data.noteId);
       setActiveView("personal-notes");
-      if (data.generateSummary) setSummaryRequest({ noteId: data.noteId });
     };
     drain();
     const cleanup = window.electronAPI?.onNoteNavigationPending?.(drain);
@@ -465,22 +467,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     () => setMeetingRecordingRequest(null),
     []
   );
-
-  // Set by the auto-end card's summary action, which routes through the note
-  // navigation queue so the panel is surfaced and the note opened first.
-  const [summaryRequest, setSummaryRequest] = useState<{ noteId: number } | null>(null);
-  const handleSummaryRequestHandled = useCallback(() => setSummaryRequest(null), []);
-  // A request the editor never consumed must not stay armed: once the user is
-  // looking at another note, or has left Notes altogether, generating a summary
-  // for the auto-ended one would be a surprise they no longer asked for.
-  // Cancelling needs an already-armed request, so the drain's own updates
-  // (note, view and request together) never trip it.
-  useEffect(() => {
-    if (!summaryRequest) return;
-    if (activeNoteId !== summaryRequest.noteId || activeView !== "personal-notes") {
-      setSummaryRequest(null);
-    }
-  }, [activeNoteId, activeView, summaryRequest]);
 
   // The side-panel layout is shared by meeting mode and by a note opened in a
   // narrow window, so leaving it means different things in each case.
@@ -1068,7 +1054,12 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
               onOpenSearch={() => setShowSearch(true)}
               isSidePanelLayout={isSidePanelLayout}
               onExitSidePanel={handleExitSidePanel}
-              actionsSlotRef={setTopBarActions}
+              actions={
+                <NewNoteMenu
+                  onNewNote={handleNewNote}
+                  onNewChat={agentAllowedByPolicy ? () => setActiveView("chat") : undefined}
+                />
+              }
             />
             <div className="scrollbar-hidden flex-1 overflow-y-auto">
               {updateRequiredByOrg && (
@@ -1223,12 +1214,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                     }}
                     meetingRecordingRequest={meetingRecordingRequest}
                     onMeetingRecordingRequestHandled={handleMeetingRecordingRequestHandled}
-                    summaryRequest={summaryRequest}
-                    onSummaryRequestHandled={handleSummaryRequestHandled}
                     invitationEntry={invitationNotesEntry}
                     onInvitationEntryHandled={() => setInvitationNotesEntry(null)}
-                    topBarActions={topBarActions}
-                    onNewChat={agentAllowedByPolicy ? () => setActiveView("chat") : undefined}
                   />
                 </Suspense>
               )}

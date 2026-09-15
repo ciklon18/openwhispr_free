@@ -100,7 +100,6 @@ const AudioStorageManager = require("./audioStorage");
 const LocalModelDownloadStatus = require("./localModelDownloadStatus");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
 const createMeetingTranscriptionLifecycle = require("./meetingTranscriptionLifecycle");
-const { registerMeetingAutoEndLifecycleHandlers } = require("./meetingAutoEndLifecycle");
 const liveSpeakerIdentifier = require("./liveSpeakerIdentifier");
 const { supportsLiveSpeakerIdentification } = require("./liveSpeakerIdPolicy");
 const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
@@ -144,6 +143,8 @@ const {
   DEFAULT_EXPECTED_SPEAKER_COUNT,
   MAX_SPEAKER_COUNT,
 } = require("../constants/speakerDetection.json");
+const { UPLOAD_AUDIO_EXTENSIONS } = require("../constants/uploadAudioFormats.json");
+const { providerContentType, prepareProviderUpload } = require("./providerUploadAudio");
 const {
   DEFAULT_WHISPER_VAD_CONFIG,
   sanitizeWhisperVadConfig,
@@ -180,18 +181,6 @@ const AUTO_LEARN_DEBOUNCE_MS = 1500;
 // the message reports the cap that actually applied.
 const byokSizeCapError = (sizeCapBytes) =>
   `File too large. Maximum size for bring-your-own-key is ${Math.floor(sizeCapBytes / (1024 * 1024))} MB.`;
-
-const AUDIO_MIME_TYPES = {
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  m4a: "audio/mp4",
-  webm: "audio/webm",
-  ogg: "audio/ogg",
-  oga: "audio/ogg",
-  flac: "audio/flac",
-  aac: "audio/aac",
-  opus: "audio/ogg",
-};
 
 const CLOUD_INLINE_LIMIT = 4 * 1024 * 1024;
 // The enterprise "Test Connection" probe only needs one word back, but the
@@ -1548,6 +1537,11 @@ class IPCHandlers {
       return { success: true };
     });
 
+    ipcMain.handle("set-main-window-input-region", (event, region) => {
+      if (event.sender !== this.windowManager.mainWindow?.webContents) return null;
+      return this.windowManager.setMainWindowInputRegion(region);
+    });
+
     ipcMain.handle("get-main-window-horizontal-direction", () => {
       return this.windowManager.getMainWindowHorizontalDirection();
     });
@@ -2845,12 +2839,7 @@ class IPCHandlers {
       if (options.multiple === true) properties.push("multiSelections");
       const result = await dialog.showOpenDialog({
         properties,
-        filters: [
-          {
-            name: "Audio Files",
-            extensions: ["mp3", "wav", "m4a", "webm", "ogg", "oga", "flac", "aac", "opus"],
-          },
-        ],
+        filters: [{ name: "Audio and Video Files", extensions: UPLOAD_AUDIO_EXTENSIONS }],
       });
       if (result.canceled || !result.filePaths.length) {
         return { canceled: true };
@@ -9752,6 +9741,7 @@ class IPCHandlers {
     ipcMain.handle("transcribe-audio-file-cloud", async (event, filePath, opts = {}) => {
       const requestId = typeof opts?.requestId === "string" ? opts.requestId : null;
       const { signal, release } = this._uploadCancelRegistry.register(requestId);
+      let cleanupUpload = null;
       try {
         if (typeof filePath !== "string") {
           return { success: false, error: "Invalid file path" };
@@ -9795,15 +9785,12 @@ class IPCHandlers {
           };
         }
 
-        const audioBuffer = fs.readFileSync(realCloud);
-        const ext = path.extname(realCloud).toLowerCase().replace(".", "");
-        const contentType = AUDIO_MIME_TYPES[ext] || "audio/mpeg";
-        const fileName = path.basename(realCloud);
-
+        const upload = await prepareProviderUpload(realCloud, { signal });
+        cleanupUpload = upload.cleanup;
         const { body, boundary } = buildMultipartBody(
-          audioBuffer,
-          fileName,
-          contentType,
+          fs.readFileSync(upload.path),
+          path.basename(upload.path),
+          providerContentType(upload.path),
           multipartFields
         );
         const url = new URL(`${apiUrl}/api/transcribe`);
@@ -9825,6 +9812,7 @@ class IPCHandlers {
         debugLogger.error("Cloud audio file transcription error", { error: error.message });
         return toPolicyFailure(error);
       } finally {
+        cleanupUpload?.();
         release();
       }
     });
@@ -9857,12 +9845,13 @@ class IPCHandlers {
         }
       ) => {
         const fs = require("fs");
+        let cleanupUpload = null;
         try {
           if (typeof filePath !== "string") {
             return { success: false, error: "Invalid file path" };
           }
-          const realByok = resolveAllowedAudioPath(filePath);
-          if (!realByok) return { success: false, error: "File path not allowed" };
+          const sourcePath = resolveAllowedAudioPath(filePath);
+          if (!sourcePath) return { success: false, error: "File path not allowed" };
 
           const { resolveTranscriptionRoute } = await import("./transcriptionRoute.ts");
           const route = resolveTranscriptionRoute({
@@ -9891,26 +9880,28 @@ class IPCHandlers {
             };
           }
 
+          const upload = await prepareProviderUpload(sourcePath);
+          cleanupUpload = upload.cleanup;
+          const realByok = upload.path;
+
           if (route.transport === "managed") {
             if (fs.statSync(realByok).size > route.sizeCapBytes) {
               return { success: false, error: byokSizeCapError(route.sizeCapBytes) };
             }
-            const ext = path.extname(realByok).toLowerCase().replace(".", "");
             const text = await this.executeManagedTranscription(event, route, {
               audioBuffer: fs.readFileSync(realByok),
               fileName: path.basename(realByok),
-              contentType: AUDIO_MIME_TYPES[ext] || "audio/mpeg",
+              contentType: providerContentType(realByok),
             });
             return { success: true, text };
           }
 
           if (route.transport === "http-batch" && route.provider === "self-hosted") {
             // User's own server, so the 25 MB third-party cap does not apply.
-            const ext = path.extname(realByok).toLowerCase().replace(".", "");
             const { body, boundary } = buildMultipartBody(
               fs.readFileSync(realByok),
               path.basename(realByok),
-              AUDIO_MIME_TYPES[ext] || "audio/mpeg",
+              providerContentType(realByok),
               { model: route.model, language: route.language }
             );
             const data = await postMultipart(new URL(route.endpoint), body, boundary);
@@ -9948,11 +9939,10 @@ class IPCHandlers {
           }
 
           if (route.transport === "proxied" && route.provider === "tinfoil") {
-            const ext = path.extname(realByok).toLowerCase().replace(".", "");
             const { text } = await transcribeWithTinfoil({
               audioBuffer: fs.readFileSync(realByok),
               fileName: path.basename(realByok),
-              contentType: AUDIO_MIME_TYPES[ext] || "audio/mpeg",
+              contentType: providerContentType(realByok),
               language: route.language,
               apiKey: this.environmentManager.getTinfoilKey(),
             });
@@ -9960,13 +9950,12 @@ class IPCHandlers {
           }
 
           if (route.transport === "proxied" && route.provider === "gemini") {
-            const ext = path.extname(realByok).toLowerCase().replace(".", "");
             // Deliberately no language hint — same rationale as the multipart
             // branch below, and Gemini's language_codes is a hard constraint.
             const { text } = await transcribeWithGemini({
               audioBuffer: fs.readFileSync(realByok),
               model: route.model,
-              contentType: AUDIO_MIME_TYPES[ext] || "audio/mpeg",
+              contentType: providerContentType(realByok),
               apiKey: apiKey || this.environmentManager.getGeminiKey(),
             });
             return { success: true, text };
@@ -9977,8 +9966,7 @@ class IPCHandlers {
           }
 
           const audioBuffer = fs.readFileSync(realByok);
-          const ext = path.extname(realByok).toLowerCase().replace(".", "");
-          const contentType = AUDIO_MIME_TYPES[ext] || "audio/mpeg";
+          const contentType = providerContentType(realByok);
           const fileName = path.basename(realByok);
 
           // mistral/xai have no OpenAI-compatible endpoint — talk to them
@@ -10103,6 +10091,8 @@ class IPCHandlers {
             code: error.code,
             messageKey: error.messageKey,
           };
+        } finally {
+          cleanupUpload?.();
         }
       }
     );
@@ -11535,8 +11525,6 @@ class IPCHandlers {
         return { success: false, error: error.message };
       }
     });
-
-    registerMeetingAutoEndLifecycleHandlers(ipcMain, () => this.meetingDetectionEngine);
 
     ipcMain.handle("join-calendar-meeting", async (_event, eventId) => {
       try {
