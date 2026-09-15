@@ -23,9 +23,6 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  # the merge can touch upstream workflow files — pushing those back
-  # requires the workflows permission (GitHub refuses App tokens otherwise)
-  workflows: write
 
 jobs:
   sync:
@@ -45,6 +42,10 @@ jobs:
           git remote add upstream https://github.com/OpenWhispr/openwhispr.git 2>/dev/null || true
           git fetch upstream main
           git checkout main
+
+          git checkout -B _pre_merge_workflows -- .github/workflows/personal-upstream-sync.yml .github/workflows/personal-ci.yml .github/workflows/personal-build-windows.yml 2>/dev/null || true
+          BEFORE_SHA=$(git rev-parse HEAD)
+
           if ! git merge --no-edit upstream/main -m "chore: sync fork main with upstream/main"; then
             git merge --abort || true
             gh label create upstream-sync --description "Upstream sync needs attention" --color "d73a4a" || true
@@ -53,6 +54,12 @@ jobs:
               --body "The weekly sync could not merge upstream/main into fork main. Resolve it manually, then re-run this workflow."
             exit 1
           fi
+
+          git checkout $BEFORE_SHA -- .github/workflows/personal-upstream-sync.yml .github/workflows/personal-ci.yml .github/workflows/personal-build-windows.yml 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: restore personal workflows after upstream merge" --no-verify
+          fi
+
           git push origin main
 
       - name: Check if personal branch is behind
