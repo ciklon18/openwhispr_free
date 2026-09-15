@@ -41,6 +41,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/OpenWhispr/openwhispr.git 2>/dev/null || true
           git fetch upstream main
+          git fetch origin main
           git checkout main
 
           BEFORE_SHA=$(git rev-parse HEAD)
