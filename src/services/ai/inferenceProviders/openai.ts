@@ -18,7 +18,10 @@ import {
   truncatedOutputError,
 } from "../chatRequestBody";
 import { detectEndpointDialect } from "../thinkingSuppressionDialects";
-import { getLlmRequestTimeoutSeconds } from "../../../helpers/llmRequestTimeout.js";
+import {
+  getLlmRequestTimeoutSeconds,
+  llmRequestTimeoutError,
+} from "../../../helpers/llmRequestTimeout.js";
 import { extractApiErrorMessage } from "../apiErrorMessage";
 import { wrapCleanupTranscript } from "../../../config/prompts";
 import { openCodeSessionHeaders } from "../openCodeSession";
@@ -278,7 +281,7 @@ export const openaiProvider: InferenceProvider = {
         const { url: endpoint, type } = endpointCandidates[i];
         const hasAlternativeCandidate = i < endpointCandidates.length - 1;
         const controller = new AbortController();
-        const timeoutSeconds = getLlmRequestTimeoutSeconds();
+        const timeoutSeconds = getLlmRequestTimeoutSeconds({ scope: config.inferenceScope });
         const timeoutId = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
         try {
           const requestedMaxTokens =
@@ -369,7 +372,7 @@ export const openaiProvider: InferenceProvider = {
           return res.json();
         } catch (error) {
           if ((error as Error).name === "AbortError") {
-            throw new Error(`Request timed out after ${timeoutSeconds}s`);
+            throw llmRequestTimeoutError(timeoutSeconds);
           }
           lastError = error as Error;
           if (retryStrategy.shouldRetry(lastError)) {

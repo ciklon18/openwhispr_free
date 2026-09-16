@@ -90,7 +90,7 @@ const EXPECTED_NATIVE_FIELD_DIRECTIONS = {
   "src/components/ReferralDashboard.tsx": ["ltr"],
   "src/components/SettingsPage.tsx": ["inherit"],
   "src/components/chat/ChatInput.tsx": ["auto"],
-  "src/components/upload/UploadAudioView.tsx": ["ltr", "ltr", "inherit", "inherit"],
+  "src/components/upload/UploadAudioView.tsx": ["ltr", "ltr", "inherit"],
   "src/components/onboarding/DemoStep.tsx": ["auto"],
   "src/components/onboarding/LanguageSelectionStep.tsx": ["auto"],
   "src/components/onboarding/UseCaseStep.tsx": ["auto"],

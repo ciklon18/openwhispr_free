@@ -9,6 +9,15 @@ import type {
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia" | "cohere";
 
+export interface MainWindowInputRegion {
+  viewportWidth: number;
+  viewportHeight: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export type ChineseScriptPreference = "simplified" | "traditional" | "as-transcribed";
 
 export type InferenceMode = "openwhispr" | "providers" | "local" | "self-hosted" | "enterprise";
@@ -450,9 +459,13 @@ export interface SpaceItem {
   name: string;
   emoji: string | null;
   sort_order: number;
-  // Server-computed max effective role across assigned teams (ws owner/admin ⇒ admin).
+  // Server-computed effective role: direct grant or best role across assigned
+  // teams (ws owner/admin ⇒ admin).
   my_role: "admin" | "member" | null;
-  // Server-computed deduped union of assigned team rosters.
+  // Direct space_members grant, null when access comes only via teams or the
+  // workspace role. Absent on mirrors written before the API shipped it.
+  my_direct_role?: TeamRole | null;
+  // Server-computed deduped union of direct members and assigned team rosters.
   member_count: number | null;
   teams: SpaceTeamRef[];
   sync_status: "synced" | "pending" | "error";
@@ -595,6 +608,8 @@ export interface InvitationPreview {
   email: string;
   workspace_role: WorkspaceRole;
   team_ids: string[];
+  /** Live spaces the invite grants directly; absent from APIs that predate space grants. */
+  space_names?: string[];
   expires_at: string;
   workspace_id: string;
   workspace_name: string;
@@ -1904,6 +1919,8 @@ declare global {
       startControlPanelDrag: () => Promise<void>;
       stopControlPanelDrag: () => Promise<void>;
       setMainWindowInteractivity: (interactive: boolean) => Promise<void>;
+      setMainWindowInputRegion: (region: MainWindowInputRegion | null) => Promise<boolean>;
+      onMainWindowVisibilityChanged: (callback: (visible: boolean) => void) => () => void;
       setNotificationInteractivity: (interactive: boolean) => Promise<void>;
       resizeMainWindow: (
         sizeKey:
@@ -2935,8 +2952,6 @@ declare global {
       getPendingNoteNavigation?: () => Promise<{
         noteId: number;
         folderId: number | null;
-        /** Set by the auto-end card's summary action: open the note and run its AI summary. */
-        generateSummary?: boolean;
       } | null>;
       onNoteNavigationPending?: (callback: () => void) => () => void;
       onPreviewText?: (callback: (text: string) => void) => () => void;

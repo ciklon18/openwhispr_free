@@ -120,10 +120,9 @@ test("localized sentences isolate technical interpolations without changing word
       /<BidiInterpolatedText[\s\S]*?updates\.whatsNew[\s\S]*?value=\{updateInfo\.version\}/,
     ],
     [
-      "src/components/TeamRosterSection.tsx",
+      "src/components/MemberRoster.tsx",
       /<BidiInterpolatedText[\s\S]*?members\.inviteFooter[\s\S]*?value=\{addSearch\.trim\(\)\}/,
     ],
-
   ];
 
   for (const [file, pattern] of expectations) {
@@ -158,7 +157,6 @@ test("user-authored names and previews detect direction at their display boundar
     ],
     ["src/components/chat/ChatMessage.tsx", /<p\s+dir="auto"[^>]*>\s*\{title\}/],
     ["src/components/DictionaryView.tsx", /<span\s+dir="auto"[^>]*>\s*\{agentName\}/],
-
     [
       "src/components/settings/WorkspaceSection.tsx",
       /<h2\s+dir="auto"[^>]*>\s*\{workspace\.name\}/,
