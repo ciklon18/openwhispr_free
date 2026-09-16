@@ -92,7 +92,7 @@ jobs:
             COMMITS="$(git log --oneline origin/personal/windows-dictation..main | head -50)"
             gh pr create --base personal/windows-dictation --head sync/upstream-main --repo ${{ github.repository }} \
               --title "chore: merge upstream main into personal/windows-dictation" \
-              --body "Automated upstream sync passed merge cleanly. Upstream commits included:\n\n\`\`\`\n${COMMITS}\n\`\`\`\n\nCI must be green before merging. Close this PR instead if a change is unwanted."
+              --body "$(printf 'Automated upstream sync passed merge cleanly. Upstream commits included:\n\n```\n%s\n```\n\nCI must be green before merging. Close this PR instead if a change is unwanted.' "$COMMITS")"
           fi
 
       - name: Report conflicts to the owner
@@ -104,7 +104,7 @@ jobs:
           FILES="$(cat /tmp/conflicts.txt | head -50)"
           COMMITS="$(git log --oneline origin/personal/windows-dictation..main | head -30)"
           EXISTING="$(gh issue list --label upstream-sync --state open --repo ${{ github.repository }} --json number --jq '.[0].number')"
-          BODY="The weekly sync could NOT merge upstream into personal/windows-dictation — resolve manually, then re-run this workflow or merge by hand.\n\nConflicting files:\n\`\`\`\n${FILES}\n\`\`\`\n\nNew upstream commits:\n\`\`\`\n${COMMITS}\n\`\`\`"
+          BODY="$(printf 'The weekly sync could NOT merge upstream into personal/windows-dictation — resolve manually, then re-run this workflow or merge by hand.\n\nConflicting files:\n```\n%s\n```\n\nNew upstream commits:\n```\n%s\n```' "$FILES" "$COMMITS")"
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body "$BODY" --repo ${{ github.repository }}
           else
