@@ -162,11 +162,9 @@ test("user-authored names and previews detect direction at their display boundar
       /<h2\s+dir="auto"[^>]*>\s*\{workspace\.name\}/,
     ],
     ["src/components/settings/WorkspaceSection.tsx", /<span\s+dir="auto"[^>]*>\s*\{w\.name\}/],
-
   ];
 
   for (const [file, pattern] of expectations) {
     assert.match(source(file), pattern, `${file} lost a dynamic-content direction boundary`);
   }
-
 });

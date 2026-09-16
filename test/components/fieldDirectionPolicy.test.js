@@ -178,6 +178,4 @@ test("representative prose, identity, secret, and rich-editor surfaces keep thei
     /function HotkeyChord[\s\S]*?<div\s+dir="ltr"/
   );
   assert.match(source("src/components/ErrorBoundary.tsx"), /<pre\s+dir="ltr"/);
-
-
 });
