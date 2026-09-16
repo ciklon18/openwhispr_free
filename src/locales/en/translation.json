@@ -723,7 +723,7 @@
       "ollama": "(Ollama)",
       "localAi": "(LocalAI)",
       "apiKeyOptional": "API Key (Optional)",
-      "apiKeyHelp": "Optional. Sent as a Bearer token for authentication. This is separate from your OpenAI API key.",
+      "apiKeyHelp": "Optional. Leave blank to use the matching environment variable, or enter $OPENAI_API_KEY to reuse another OpenWhispr secret name. Arbitrary names like $MY_COMPANY_KEY are not expanded. Shell exports (e.g. ~/.zshrc) are imported at startup.",
       "applyAndRefresh": "Apply & Refresh",
       "queryPrefix": "We'll query",
       "querySuffix": "for available models.",
@@ -863,7 +863,8 @@
     "tinfoil": {
       "transportNote": "Tinfoil streams using Voxtral Mini 4B, and batches with Voxtral Small 24B.",
       "docsLink": "Read the docs"
-    }
+    },
+    "apiKeyEnvHelp": "Optional. Leave blank to use CUSTOM_TRANSCRIPTION_API_KEY, or enter $OPENAI_API_KEY to reuse another. Shell exports (e.g. ~/.zshrc) are imported at startup."
   },
   "hooks": {
     "audioRecording": {
@@ -2222,6 +2223,8 @@
         "title": "Clipboard",
         "autoPaste": "Automatic pasting",
         "autoPasteDescription": "Automatically paste transcribed text into the active app when dictation finishes",
+        "pressEnterAfterPaste": "Press Enter after paste",
+        "pressEnterAfterPasteDescription": "Send Enter once text has been pasted, to submit it. Take care in terminals and command palettes, where Enter runs commands immediately.",
         "keepInClipboard": "Keep transcription in clipboard",
         "keepInClipboardDescription": "Keep dictated text in your clipboard so you can paste it manually if needed"
       },
@@ -2566,7 +2569,31 @@
           }
         }
       },
-      "meetingEnterpriseOnly": "Your organization only allows enterprise cloud transcription, which does not cover meeting recording yet."
+      "meetingEnterpriseOnly": "Your organization only allows enterprise cloud transcription, which does not cover meeting recording yet.",
+      "idleUnload": {
+        "title": "Idle Unload",
+        "description": "Automatically stop the local Whisper server after a period of inactivity to free up RAM and VRAM",
+        "label": "Unload after",
+        "options": {
+          "0": "Never",
+          "300000": "5 minutes",
+          "900000": "15 minutes",
+          "1800000": "30 minutes",
+          "3600000": "60 minutes"
+        }
+      },
+      "idleUnloadParakeet": {
+        "title": "Idle Unload",
+        "description": "Automatically stop the local Parakeet server after a period of inactivity to free up RAM and VRAM",
+        "label": "Unload after",
+        "options": {
+          "0": "Never",
+          "300000": "5 minutes",
+          "900000": "15 minutes",
+          "1800000": "30 minutes",
+          "3600000": "60 minutes"
+        }
+      }
     },
     "intelligence": {
       "gpuDevice": {
@@ -3660,14 +3687,16 @@
     "remindLater": "Remind Me Later"
   },
   "apiKeyInput": {
-    "placeholder": "Paste your API key",
+    "placeholder": "Paste API key or $ENV_VAR",
     "label": "API Key",
     "save": "Save API key",
     "cancelEdit": "Cancel editing",
     "edit": "Edit API key",
     "add": "Add API key",
     "editButton": "edit",
-    "addButton": "add"
+    "addButton": "add",
+    "selfReference": "Use a different variable name here, or leave this field empty.",
+    "unknownRef": "Only OpenWhispr secret names can be referenced (for example $OPENAI_API_KEY)."
   },
   "gpu": {
     "transcriptionBanner": "Speed up transcription with GPU acceleration",

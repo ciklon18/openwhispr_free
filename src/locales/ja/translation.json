@@ -723,7 +723,7 @@
       "ollama": "（Ollama）",
       "localAi": "（LocalAI）",
       "apiKeyOptional": "API キー（任意）",
-      "apiKeyHelp": "任意。Bearer トークンとして認証に使用されます。OpenAI API キーとは別のものです。",
+      "apiKeyHelp": "任意。空欄なら対応する環境変数を使います。$OPENAI_API_KEY と入力すると別変数を再利用します。~/.zshrc などの shell export は起動時に読み込みます。",
       "applyAndRefresh": "適用して更新",
       "queryPrefix": "問い合わせ先:",
       "querySuffix": "で利用可能なモデルを取得します。",
@@ -863,7 +863,8 @@
     "tinfoil": {
       "transportNote": "Tinfoil はストリーミングに Voxtral Mini 4B を、バッチ処理に Voxtral Small 24B を使用します。",
       "docsLink": "ドキュメントを見る"
-    }
+    },
+    "apiKeyEnvHelp": "任意。空欄なら CUSTOM_TRANSCRIPTION_API_KEY を使います。$OPENAI_API_KEY と入力すると別変数を再利用します。~/.zshrc などの shell export は起動時に読み込みます。"
   },
   "hooks": {
     "audioRecording": {
@@ -1929,6 +1930,8 @@
         "title": "クリップボード",
         "autoPaste": "自動貼り付け",
         "autoPasteDescription": "ディクテーション完了後、文字起こしテキストをアクティブなアプリに自動的に貼り付けます",
+        "pressEnterAfterPaste": "貼り付け後に Enter を押す",
+        "pressEnterAfterPasteDescription": "テキストが貼り付けられた後に Enter を送信して確定します。ターミナルやコマンドパレットでは Enter がコマンドを即座に実行するため注意してください。",
         "keepInClipboard": "文字起こしをクリップボードに保持",
         "keepInClipboardDescription": "必要に応じて手動で貼り付けできるよう、音声入力テキストをクリップボードに保持します"
       },
@@ -2273,7 +2276,31 @@
           }
         }
       },
-      "meetingEnterpriseOnly": "組織はエンタープライズクラウドの文字起こしのみを許可しており、会議の録音にはまだ対応していません。"
+      "meetingEnterpriseOnly": "組織はエンタープライズクラウドの文字起こしのみを許可しており、会議の録音にはまだ対応していません。",
+      "idleUnload": {
+        "title": "アイドル時のアンロード",
+        "description": "一定時間操作がない場合にローカルの Whisper サーバーを自動停止し、RAM と VRAM を解放します",
+        "label": "アンロードまでの時間",
+        "options": {
+          "0": "しない",
+          "300000": "5分",
+          "900000": "15分",
+          "1800000": "30分",
+          "3600000": "60分"
+        }
+      },
+      "idleUnloadParakeet": {
+        "title": "アイドル時のアンロード",
+        "description": "一定時間操作がない場合にローカルの Parakeet サーバーを自動停止し、RAM と VRAM を解放します",
+        "label": "アンロードまでの時間",
+        "options": {
+          "0": "しない",
+          "300000": "5分",
+          "900000": "15分",
+          "1800000": "30分",
+          "3600000": "60分"
+        }
+      }
     },
     "intelligence": {
       "gpuDevice": {
@@ -3491,14 +3518,16 @@
     "remindLater": "後で通知"
   },
   "apiKeyInput": {
-    "placeholder": "API キーを入力",
+    "placeholder": "API キーまたは $ENV_VAR を貼り付け",
     "label": "API キー",
     "save": "保存",
     "cancelEdit": "編集をキャンセル",
     "edit": "編集",
     "add": "追加",
     "editButton": "編集",
-    "addButton": "追加"
+    "addButton": "追加",
+    "selfReference": "Use a different variable name here, or leave this field empty.",
+    "unknownRef": "Only OpenWhispr secret names can be referenced (for example $OPENAI_API_KEY)."
   },
   "gpu": {
     "transcriptionBanner": "GPU で文字起こしを高速化",

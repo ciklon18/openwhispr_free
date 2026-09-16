@@ -287,21 +287,11 @@ const WhisperCudaManager = require("./src/helpers/whisperCudaManager");
 const WhisperVulkanManager = require("./src/helpers/whisperVulkanManager");
 const { migrateLegacyBinDir, detectOrphanedGpuPacks } = require("./src/helpers/gpuBinaryManager");
 const { resetWhisperGpuFailureOnUpgrade } = require("./src/helpers/whisperGpuUpgradeReset");
-const GoogleCalendarManager = require("./src/helpers/googleCalendarManager");
-const MicrosoftCalendarManager = require("./src/helpers/microsoftCalendarManager");
-const AppleCalendarManager = require("./src/helpers/appleCalendarManager");
-const CalendarReminderScheduler = require("./src/helpers/calendarReminderScheduler");
-const MeetingProcessDetector = require("./src/helpers/meetingProcessDetector");
-const AudioActivityDetector = require("./src/helpers/audioActivityDetector");
-const {
-  collectAudioCaptureHelperPids,
-  createExcludedProcessIdProvider,
-} = require("./src/helpers/electronProcessIds");
+
 const AudioTapManager = require("./src/helpers/audioTapManager");
 const LinuxPortalAudioManager = require("./src/helpers/linuxPortalAudioManager");
 const WindowsLoopbackAudioManager = require("./src/helpers/windowsLoopbackAudioManager");
-const MeetingAecManager = require("./src/helpers/meetingAecManager");
-const MeetingDetectionEngine = require("./src/helpers/meetingDetectionEngine");
+
 const { applyOpenWhisprOriginHeader } = require("./src/helpers/sessionHeaders");
 const { i18nMain, changeLanguage } = require("./src/helpers/i18nMain");
 const { ensureYdotool } = require("./src/helpers/ensureYdotool");
@@ -327,15 +317,11 @@ let textEditMonitor = null;
 let selectionManager = null;
 let whisperCudaManager = null;
 let whisperVulkanManager = null;
-let googleCalendarManager = null;
-let microsoftCalendarManager = null;
-let appleCalendarManager = null;
-let calendarReminderScheduler = null;
-let meetingDetectionEngine = null;
+
 let audioTapManager = null;
 let linuxPortalAudioManager = null;
 let windowsLoopbackAudioManager = null;
-let meetingAecManager = null;
+
 let qdrantManager = null;
 let ipcHandlers = null;
 let cliBridge = null;
@@ -480,38 +466,7 @@ function initializeCoreManagers() {
   }
   parakeetManager = new ParakeetManager();
   diarizationManager = new DiarizationManager();
-  calendarReminderScheduler = new CalendarReminderScheduler(databaseManager);
-  googleCalendarManager = new GoogleCalendarManager(
-    databaseManager,
-    windowManager,
-    calendarReminderScheduler
-  );
-  microsoftCalendarManager = new MicrosoftCalendarManager(
-    databaseManager,
-    calendarReminderScheduler
-  );
-  appleCalendarManager = new AppleCalendarManager(databaseManager, calendarReminderScheduler);
-  const meetingProcessDetector = new MeetingProcessDetector();
-  meetingDetectionEngine = new MeetingDetectionEngine(
-    calendarReminderScheduler,
-    meetingProcessDetector,
-    new AudioActivityDetector(
-      // The capture-helper managers are created a few lines below; the provider
-      // is only invoked on mic events, long after initialization completes.
-      createExcludedProcessIdProvider(() =>
-        collectAudioCaptureHelperPids([
-          audioTapManager,
-          linuxPortalAudioManager,
-          windowsLoopbackAudioManager,
-        ])
-      ),
-      () => meetingProcessDetector.getDetectedProcesses().length > 0
-    ),
-    windowManager,
-    databaseManager
-  );
-  windowManager.meetingDetectionEngine = meetingDetectionEngine;
-  calendarReminderScheduler.meetingDetectionEngine = meetingDetectionEngine;
+
   updateManager = new UpdateManager();
   updateManager.setWindowManager(windowManager);
   windowsKeyManager = new WindowsKeyManager();
@@ -526,7 +481,7 @@ function initializeCoreManagers() {
   windowsLoopbackAudioManager.getCapability().catch(() => {});
   cleanupOrphanedLinuxRestoreToken();
   syncAutoStartEntry();
-  meetingAecManager = new MeetingAecManager();
+
   windowManager.textEditMonitor = textEditMonitor;
   windowManager.selectionManager = selectionManager;
   windowManager.windowsKeyManager = windowsKeyManager;
@@ -548,14 +503,11 @@ function initializeCoreManagers() {
     selectionManager,
     whisperCudaManager,
     whisperVulkanManager,
-    googleCalendarManager,
-    microsoftCalendarManager,
-    appleCalendarManager,
-    meetingDetectionEngine,
+
     audioTapManager,
     linuxPortalAudioManager,
     windowsLoopbackAudioManager,
-    meetingAecManager,
+
     getQdrantManager: () => qdrantManager,
     getTrayManager: () => trayManager,
     oauthProtocolRegistered: protocolRegistered,
@@ -620,10 +572,7 @@ function initializeDeferredManagers() {
     });
   }
 
-  googleCalendarManager.start();
-  microsoftCalendarManager.start();
-  appleCalendarManager.start();
-  meetingDetectionEngine.start();
+
 }
 
 app.on("open-url", (event, url) => {
@@ -1159,46 +1108,6 @@ async function startApp() {
     }
   }
 
-  // Set up meeting mode hotkey
-  const isMeetingPress = createHotkeyRepeatGate();
-  const meetingHotkeyCallback = () => {
-    if (!isMeetingPress()) return;
-    debugLogger.info("Meeting hotkey triggered", {}, "meeting");
-    windowManager.startManualMeeting();
-  };
-
-  const savedMeetingKey = environmentManager.getMeetingKey?.() || "";
-  if (savedMeetingKey) {
-    const result = await hotkeyManager.registerSlot(
-      "meeting",
-      savedMeetingKey,
-      meetingHotkeyCallback
-    );
-    debugLogger.info(
-      "Meeting hotkey startup registration",
-      { savedMeetingKey, ...result },
-      "meeting"
-    );
-  }
-
-  ipcMain.handle("register-meeting-hotkey", async (_event, hotkey) => {
-    if (hotkey) {
-      const result = await hotkeyManager.registerSlot("meeting", hotkey, meetingHotkeyCallback, {
-        atomic: true,
-      });
-      windowManager.reconcileNativeKeyListeners();
-      if (result.success) {
-        environmentManager.saveMeetingKey(hotkey);
-        return { success: true };
-      }
-      return { success: false, message: result.error };
-    } else {
-      hotkeyManager.unregisterSlot("meeting");
-      environmentManager.saveMeetingKey("");
-      windowManager.reconcileNativeKeyListeners();
-      return { success: true };
-    }
-  });
 
   // Phase 2: Initialize remaining managers after windows are visible
   initializeDeferredManagers();
@@ -1208,20 +1117,10 @@ async function startApp() {
     await globeKeyManager.restoreLeftoverSystemPreference();
   }
 
-  app.on("browser-window-focus", () => {
-    if (googleCalendarManager) googleCalendarManager.syncOnFocus();
-    if (microsoftCalendarManager) microsoftCalendarManager.syncOnFocus();
-    if (appleCalendarManager) appleCalendarManager.syncOnFocus();
-  });
 
   const { powerMonitor } = require("electron");
   powerMonitor.on("resume", () => {
-    if (calendarReminderScheduler) calendarReminderScheduler.onWakeFromSleep();
-    if (googleCalendarManager) {
-      googleCalendarManager.onWakeFromSleep();
-    }
-    if (microsoftCalendarManager) microsoftCalendarManager.onWakeFromSleep();
-    if (appleCalendarManager) appleCalendarManager.onWakeFromSleep();
+
     // Sleep evicts the local GPU model from VRAM; reload it once the driver settles. See #766.
     if (wakeRewarmTimer) clearTimeout(wakeRewarmTimer);
     wakeRewarmTimer = setTimeout(() => {
@@ -1727,8 +1626,6 @@ async function startApp() {
         windowManager.sendToggleVoiceAgent();
       } else if (hotkeyManager.slotHasHotkey("translation", key)) {
         windowManager.sendToggleTranslation();
-      } else if (hotkeyManager.slotHasHotkey("meeting", key)) {
-        windowManager.startManualMeeting();
       }
     };
 
@@ -1991,15 +1888,11 @@ function performSyncTeardown() {
   if (globeKeyManager) globeKeyManager.stop();
   if (windowsKeyManager) windowsKeyManager.stop();
   if (linuxKeyManager) linuxKeyManager.stop();
-  if (meetingDetectionEngine) meetingDetectionEngine.stop();
-  if (googleCalendarManager) googleCalendarManager.stop();
-  if (microsoftCalendarManager) microsoftCalendarManager.stop();
-  if (appleCalendarManager) appleCalendarManager.stop();
-  if (calendarReminderScheduler) calendarReminderScheduler.stop();
+
   if (audioTapManager) audioTapManager.stop().catch(() => {});
   if (linuxPortalAudioManager) linuxPortalAudioManager.stop().catch(() => {});
   if (windowsLoopbackAudioManager) windowsLoopbackAudioManager.stop().catch(() => {});
-  if (meetingAecManager) meetingAecManager.stop().catch(() => {});
+
   if (ipcHandlers) ipcHandlers._cleanupTextEditMonitor();
   if (textEditMonitor) textEditMonitor.stopMonitoring();
   if (updateManager) updateManager.cleanup();

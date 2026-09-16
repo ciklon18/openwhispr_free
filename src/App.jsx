@@ -17,7 +17,7 @@ import { useWindowResizeCompensation } from "./hooks/useWindowResizeCompensation
 import { useSettingsStore } from "./stores/settingsStore";
 import { isAgentAllowed } from "./stores/policyRules";
 import { usePolicyStore } from "./stores/policyStore";
-import { useTranscriptionContextAllowed } from "./hooks/usePolicy";
+
 import { useTrayQuickActions } from "./hooks/useTrayQuickActions";
 import { VoicePill } from "./components/dictation/VoicePill";
 import { AssistantPanel } from "./components/dictation/AssistantPanel";
@@ -119,7 +119,6 @@ export default function App() {
   useMainProcessNotifications({ toast, dismiss, t });
 
   const agentAllowed = usePolicyStore(isAgentAllowed);
-  const meetingAllowed = useTranscriptionContextAllowed("meeting");
   // Both allowances fail closed while the policy is loading or its fetch failed,
   // so the tray's refusals need to tell those apart from a real org restriction.
   const policyStatus = usePolicyStore((state) => state.status);
@@ -769,7 +768,6 @@ export default function App() {
               buttonRef={buttonRef}
               isRecording={isRecording}
               agentAllowed={agentAllowed}
-              meetingAllowed={meetingAllowed}
               isHovered={isHovered}
               setWindowInteractivity={setWindowInteractivity}
               onToggleListening={() => {
@@ -779,10 +777,7 @@ export default function App() {
                 setIsCommandMenuOpen(false);
                 void openAssistantPanel();
               }}
-              onStartMeeting={() => {
-                setIsCommandMenuOpen(false);
-                void window.electronAPI?.startManualMeeting?.();
-              }}
+
               onHide={() => {
                 setIsCommandMenuOpen(false);
                 setWindowInteractivity(false);

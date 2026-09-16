@@ -4,6 +4,9 @@ const assert = require("node:assert/strict");
 const {
   HIDDEN_LAUNCH_FLAG,
   getLoginItemArgs,
+  supportsElevatedAutoStart,
+  resolveAutoStartMechanism,
+  getLoginItemLookupPath,
   resolveAutoStartState,
   needsHiddenFlagMigration,
   wasLaunchedHidden,
@@ -22,6 +25,41 @@ test("platforms without a hidden-launch flag pass no args", () => {
   assert.deepEqual(getLoginItemArgs("linux"), []);
 });
 
+// Electron parses the lookup path AND every Run value with CommandLine::FromString,
+// then compares the parsed programs. Unquoted, "C:\Program Files\OpenWhispr\..."
+// truncates to "C:\Program" and compares equal to any other unquoted Run entry under
+// C:\Program Files, so executableWillLaunchAtLogin reports a stranger's startup entry
+// as ours — and keeps reporting true once ours is gone, which is what makes the
+// launch-at-login switch impossible to turn off.
+test("Windows passes a quoted lookup path so the exe comparison is exact", () => {
+  assert.equal(
+    getLoginItemLookupPath("win32", "C:\\Program Files\\OpenWhispr\\OpenWhispr.exe"),
+    '"C:\\Program Files\\OpenWhispr\\OpenWhispr.exe"'
+  );
+});
+
+// FormatCommandLineString strips one layer of surrounding quotes before re-quoting,
+// but double-quoting would still be wrong to write, so never wrap twice.
+test("an already quoted Windows path is not quoted twice", () => {
+  assert.equal(
+    getLoginItemLookupPath("win32", '"C:\\Program Files\\OpenWhispr\\OpenWhispr.exe"'),
+    '"C:\\Program Files\\OpenWhispr\\OpenWhispr.exe"'
+  );
+});
+
+// Only Windows parses the path this way, and passing one elsewhere would change what
+// macOS compares against.
+test("platforms other than Windows pass no lookup path", () => {
+  assert.equal(getLoginItemLookupPath("darwin", "/Applications/OpenWhispr.app"), null);
+  assert.equal(getLoginItemLookupPath("linux", "/usr/bin/open-whispr"), null);
+});
+
+// Falling back to no path is what the caller already did, and is still correct.
+test("a missing executable path yields no lookup path", () => {
+  assert.equal(getLoginItemLookupPath("win32", ""), null);
+  assert.equal(getLoginItemLookupPath("win32", undefined), null);
+});
+
 // The bug behind the reported "startup app not recognized": openAtLogin only
 // checks the Run entry, so an app the user switched off in Task Manager still
 // reads as enabled while never actually starting.
@@ -38,7 +76,7 @@ test("a startup item Windows will actually launch reads as enabled", () => {
     platform: "win32",
     loginItemSettings: { openAtLogin: true, executableWillLaunchAtLogin: true },
   });
-  assert.deepEqual(state, { enabled: true, requiresApproval: false });
+  assert.deepEqual(state, { enabled: true, requiresApproval: false, elevated: false });
 });
 
 // An entry written by an older build carries no --hidden, so it no longer matches
@@ -104,6 +142,69 @@ test("launch at login that is simply off is not mistaken for a stale entry", () 
     needsHiddenFlagMigration({
       platform: "win32",
       loginItemSettings: { openAtLogin: false, executableWillLaunchAtLogin: false },
+    }),
+    false
+  );
+});
+
+// A Run entry cannot be elevated, so elevated launch at login is a scheduled task.
+test("only Windows supports elevated auto-start", () => {
+  assert.equal(supportsElevatedAutoStart("win32"), true);
+  assert.equal(supportsElevatedAutoStart("darwin"), false);
+  assert.equal(supportsElevatedAutoStart("linux"), false);
+});
+
+// Both mechanisms start the app at login, so running both means two instances race the
+// single-instance lock. Exactly one owns startup at a time.
+test("the Run entry and the elevated task are mutually exclusive", () => {
+  assert.deepEqual(
+    resolveAutoStartMechanism({ platform: "win32", enabled: true, elevated: true }),
+    {
+      loginItem: false,
+      scheduledTask: true,
+    }
+  );
+  assert.deepEqual(
+    resolveAutoStartMechanism({ platform: "win32", enabled: true, elevated: false }),
+    { loginItem: true, scheduledTask: false }
+  );
+});
+
+test("disabling launch at login clears both Windows mechanisms", () => {
+  assert.deepEqual(
+    resolveAutoStartMechanism({ platform: "win32", enabled: false, elevated: true }),
+    { loginItem: false, scheduledTask: false }
+  );
+});
+
+// Asking for elevation off Windows must not silently drop launch at login.
+test("platforms without elevation support still get their login item", () => {
+  assert.deepEqual(
+    resolveAutoStartMechanism({ platform: "darwin", enabled: true, elevated: true }),
+    { loginItem: true, scheduledTask: false }
+  );
+});
+
+// With the task owning startup the Run entry is absent by design, so the switch must not
+// read as off just because executableWillLaunchAtLogin is false.
+test("the elevated task counts as launch at login on Windows", () => {
+  const state = resolveAutoStartState({
+    platform: "win32",
+    loginItemSettings: { openAtLogin: false, executableWillLaunchAtLogin: false },
+    elevatedTaskPresent: true,
+  });
+  assert.deepEqual(state, { enabled: true, requiresApproval: false, elevated: true });
+});
+
+// The migration repairs a stale Run entry. While the task owns startup there is no Run
+// entry on purpose, and restoring one would reintroduce the double launch at logon that
+// switching to the task removed.
+test("the hidden-flag migration is suppressed while the elevated task owns startup", () => {
+  assert.equal(
+    needsHiddenFlagMigration({
+      platform: "win32",
+      loginItemSettings: { openAtLogin: false, executableWillLaunchAtLogin: true },
+      elevatedTaskPresent: true,
     }),
     false
   );

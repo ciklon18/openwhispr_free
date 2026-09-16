@@ -4,6 +4,7 @@ import i18n, { normalizeUiLanguage } from "../i18n";
 import { ensureAgentNameInDictionary } from "../utils/agentName";
 import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup";
 import logger from "../utils/logger";
+import { classifySecretInput } from "../helpers/envRef";
 import whisperVadConstants from "../constants/whisperVad.json";
 import type {
   ChineseScriptPreference,
@@ -11,7 +12,6 @@ import type {
   InferenceMode,
   SelfHostedType,
 } from "../types/electron";
-import type { CalendarAccount } from "../types/calendar";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import { sweepRetiredPromptOverrides } from "../config/retiredPrompts";
 import { sweepRetiredCloudModelSelections } from "../config/retiredCloudModels";
@@ -35,7 +35,6 @@ import { pickDefaultModelId } from "../models/providerDefaultModel";
 // the switch store only zustand, so neither reopens the ModelRegistry cycle.
 import { readCachedTinfoilModels } from "../models/tinfoilModelCache";
 import { recordTinfoilModelSwitch } from "./tinfoilModelSwitchStore";
-import { MEETING_STREAMING_PROVIDER_IDS } from "../helpers/meetingTranscriptionRouting";
 import { STREAMING_ONLY_PROVIDERS } from "../helpers/transcriptionRoute";
 import {
   getTranscriptionSelection,
@@ -92,18 +91,6 @@ const TRANSCRIPTION_POLICY_CATALOG = {
   enterpriseProviders: TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
 };
 
-const MEETING_TRANSCRIPTION_POLICY_CATALOG = {
-  // Self-hosted realtime is not implemented for Note Recording.
-  modes: ["openwhispr", "providers", "local"] as const,
-  byokProviders: modelRegistryData.transcriptionProviders
-    .filter(
-      (provider) =>
-        MEETING_STREAMING_PROVIDER_IDS.includes(provider.id) &&
-        provider.models.some((model) => model.streaming)
-    )
-    .map((provider) => provider.id),
-};
-
 const LLM_POLICY_CATALOG = {
   modes: ["openwhispr", "providers", "local", "self-hosted", "enterprise"] as const,
   byokProviders: LLM_POLICY_PROVIDER_IDS,
@@ -121,7 +108,7 @@ function transcriptionProviderModels(
   const models =
     modelRegistryData.transcriptionProviders.find((provider) => provider.id === providerId)
       ?.models ?? [];
-  return context === "meeting" ? models.filter((model) => model.streaming) : models;
+  return models;
 }
 
 function defaultTranscriptionModel(
@@ -217,6 +204,21 @@ function snapMicWarmHold(value: number): number {
   return (MIC_WARM_HOLD_CHOICES as readonly number[]).includes(value) ? value : 0;
 }
 
+// Durations offered by the whisper idle-unload select (ms); unknown values snap to 0
+// (never) so a hand-edited localStorage entry can never unexpectedly start unloading.
+export const WHISPER_IDLE_TIMEOUT_CHOICES = [0, 300000, 900000, 1800000, 3600000] as const;
+
+function snapWhisperIdleTimeout(value: number): number {
+  return (WHISPER_IDLE_TIMEOUT_CHOICES as readonly number[]).includes(value) ? value : 0;
+}
+
+// Same choices, same snap-to-Never-on-garbage-input rationale, for the Parakeet server.
+export const PARAKEET_IDLE_TIMEOUT_CHOICES = [0, 300000, 900000, 1800000, 3600000] as const;
+
+function snapParakeetIdleTimeout(value: number): number {
+  return (PARAKEET_IDLE_TIMEOUT_CHOICES as readonly number[]).includes(value) ? value : 0;
+}
+
 function readStringArray(key: string, fallback: string[]): string[] {
   if (!isBrowser) return fallback;
   const stored = localStorage.getItem(key);
@@ -262,7 +264,6 @@ initializeAutoUpdatesDefault();
 
 const BOOLEAN_SETTINGS = new Set([
   "useLocalWhisper",
-  "meetingUseLocalWhisper",
   "uploadUseLocalWhisper",
   "allowOpenAIFallback",
   "allowLocalFallback",
@@ -282,13 +283,11 @@ const BOOLEAN_SETTINGS = new Set([
   "pauseMediaOnDictation",
   "floatingIconAutoHide",
   "startMinimized",
-  "meetingProcessDetection",
-  "speakerDiarizationEnabled",
   "dictationSileroEnabled",
   "noteRecordingSileroEnabled",
-  "meetingSileroEnabled",
   "isSignedIn",
   "autoPasteEnabled",
+  "pressEnterAfterPaste",
   "keepTranscriptionInClipboard",
   "dataRetentionEnabled",
   "saveDiscardedTranscriptions",
@@ -300,19 +299,12 @@ const BOOLEAN_SETTINGS = new Set([
   "noteFormattingDisableThinking",
   "chatAgentDisableThinking",
   "notificationsEnabled",
-  "notifyMeetingDetection",
-  "notifyCalendarReminders",
   "autoUpdatesEnabled",
-  "gcalPrimaryOnly",
-  "mcalPrimaryOnly",
-  "appleCalendarConnected",
 ]);
 
 const ARRAY_SETTINGS = new Set([
   "customDictionary",
   "snippets",
-  "gcalAccounts",
-  "mcalAccounts",
   "onboardingUseCases",
   "spokenLanguages",
   "translationTargets",
@@ -861,32 +853,22 @@ export interface SettingsState
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
   startMinimized: boolean;
-  gcalAccounts: CalendarAccount[];
-  gcalConnected: boolean;
-  gcalEmail: string;
-  mcalAccounts: CalendarAccount[];
-  mcalConnected: boolean;
   notificationsEnabled: boolean;
-  notifyMeetingDetection: boolean;
-  notifyCalendarReminders: boolean;
   autoUpdatesEnabled: boolean;
-  gcalPrimaryOnly: boolean;
-  mcalPrimaryOnly: boolean;
-  appleCalendarConnected: boolean;
-  meetingProcessDetection: boolean;
-  speakerDiarizationEnabled: boolean;
   dictationSileroEnabled: boolean;
   noteRecordingSileroEnabled: boolean;
-  meetingSileroEnabled: boolean;
   whisperVadThreshold: number;
   whisperVadMinSpeechDurationMs: number;
   whisperVadMinSilenceDurationMs: number;
   whisperVadMaxSpeechDurationS: number;
   whisperVadSpeechPadMs: number;
   whisperVadSamplesOverlap: number;
+  whisperIdleTimeoutMs: number;
+  parakeetIdleTimeoutMs: number;
   panelStartPosition: "bottom-right" | "center" | "bottom-left";
   showTranscriptionPreview: boolean;
   autoPasteEnabled: boolean;
+  pressEnterAfterPaste: boolean;
   keepTranscriptionInClipboard: boolean;
   noteFilesEnabled: boolean;
   noteFilesPath: string;
@@ -897,19 +879,6 @@ export interface SettingsState
   remoteTranscriptionModel: string;
   cleanupMode: InferenceMode;
   cleanupRemoteUrl: string;
-
-  meetingTranscriptionMode: InferenceMode;
-  meetingUseLocalWhisper: boolean;
-  meetingWhisperModel: string;
-  meetingLocalTranscriptionProvider: LocalTranscriptionProvider;
-  meetingParakeetModel: string;
-  meetingCohereModel: string;
-  meetingCloudTranscriptionProvider: string;
-  meetingCloudTranscriptionModel: string;
-  meetingCloudTranscriptionBaseUrl: string;
-  meetingCloudTranscriptionMode: string;
-  meetingRemoteTranscriptionType: SelfHostedType;
-  meetingRemoteTranscriptionUrl: string;
 
   uploadTranscriptionMode: InferenceMode;
   uploadUseLocalWhisper: boolean;
@@ -1000,19 +969,6 @@ export interface SettingsState
   setRemoteTranscriptionModel: (model: string) => void;
   setCleanupMode: (mode: InferenceMode) => void;
   setCleanupRemoteUrl: (url: string) => void;
-
-  setMeetingTranscriptionMode: (mode: InferenceMode) => void;
-  setMeetingUseLocalWhisper: (value: boolean) => void;
-  setMeetingWhisperModel: (value: string) => void;
-  setMeetingLocalTranscriptionProvider: (value: LocalTranscriptionProvider) => void;
-  setMeetingParakeetModel: (value: string) => void;
-  setMeetingCohereModel: (value: string) => void;
-  setMeetingCloudTranscriptionProvider: (value: string) => void;
-  setMeetingCloudTranscriptionModel: (value: string) => void;
-  setMeetingCloudTranscriptionBaseUrl: (value: string) => void;
-  setMeetingCloudTranscriptionMode: (value: string) => void;
-  setMeetingRemoteTranscriptionType: (type: SelfHostedType) => void;
-  setMeetingRemoteTranscriptionUrl: (url: string) => void;
 
   setUploadTranscriptionMode: (mode: InferenceMode) => void;
   setUploadUseLocalWhisper: (value: boolean) => void;
@@ -1146,11 +1102,9 @@ export interface SettingsState
   setVertexApiKey: (key: string) => void;
 
   setDictationKey: (key: string) => void;
-  setMeetingKey: (key: string) => void;
   setVoiceAgentKey: (key: string) => Promise<boolean>;
   translationKey: string;
   setTranslationKey: (key: string) => Promise<boolean>;
-  setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => void;
   setOnboardingUseCases: (useCases: string[]) => void;
   setOnboardingUseCaseNote: (note: string) => void;
   setSpokenLanguages: (languages: string[]) => void;
@@ -1173,29 +1127,22 @@ export interface SettingsState
   setPauseMediaOnDictation: (value: boolean) => void;
   setFloatingIconAutoHide: (enabled: boolean) => void;
   setStartMinimized: (enabled: boolean) => void;
-  setGcalAccounts: (accounts: CalendarAccount[]) => void;
-  setMcalAccounts: (accounts: CalendarAccount[]) => void;
   setNotificationsEnabled: (value: boolean) => void;
-  setNotifyMeetingDetection: (value: boolean) => void;
-  setNotifyCalendarReminders: (value: boolean) => void;
   setAutoUpdatesEnabled: (enabled: boolean) => void;
-  setGcalPrimaryOnly: (value: boolean) => void;
-  setMcalPrimaryOnly: (value: boolean) => void;
-  setAppleCalendarConnected: (value: boolean) => void;
-  setMeetingProcessDetection: (value: boolean) => void;
-  setSpeakerDiarizationEnabled: (value: boolean) => void;
   setDictationSileroEnabled: (value: boolean) => void;
   setNoteRecordingSileroEnabled: (value: boolean) => void;
-  setMeetingSileroEnabled: (value: boolean) => void;
   setWhisperVadThreshold: (value: number) => void;
   setWhisperVadMinSpeechDurationMs: (value: number) => void;
   setWhisperVadMinSilenceDurationMs: (value: number) => void;
   setWhisperVadMaxSpeechDurationS: (value: number) => void;
   setWhisperVadSpeechPadMs: (value: number) => void;
   setWhisperVadSamplesOverlap: (value: number) => void;
+  setWhisperIdleTimeoutMs: (ms: number) => void;
+  setParakeetIdleTimeoutMs: (ms: number) => void;
   setPanelStartPosition: (position: "bottom-right" | "center" | "bottom-left") => void;
   setShowTranscriptionPreview: (value: boolean) => void;
   setAutoPasteEnabled: (value: boolean) => void;
+  setPressEnterAfterPaste: (value: boolean) => void;
   setKeepTranscriptionInClipboard: (value: boolean) => void;
   setNoteFilesEnabled: (value: boolean) => void;
   setNoteFilesPath: (value: string) => void;
@@ -1360,22 +1307,92 @@ const SECRET_IPC_SAVERS = {
 
 type SecretProvider = keyof typeof SECRET_IPC_SAVERS;
 
+// The env var each secret setter writes to, used to reject a field that
+// references itself (`$OPENAI_API_KEY` in the OpenAI field resolves to nothing
+// once saved). `Record<SecretProvider, string>` makes a new entry in
+// SECRET_IPC_SAVERS a type error until its env name is listed here.
+const SAVER_ENV: Record<SecretProvider, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  groq: "GROQ_API_KEY",
+  xai: "XAI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  cortiClientId: "CORTI_CLIENT_ID",
+  cortiClientSecret: "CORTI_CLIENT_SECRET",
+  cortiApiKey: "CORTI_API_KEY",
+  tinfoil: "TINFOIL_API_KEY",
+  deepgram: "DEEPGRAM_API_KEY",
+  assemblyai: "ASSEMBLYAI_API_KEY",
+  customTranscription: "CUSTOM_TRANSCRIPTION_API_KEY",
+  cleanupCustom: "CUSTOM_CLEANUP_API_KEY",
+  noteFormattingCustom: "NOTE_FORMATTING_CUSTOM_API_KEY",
+  translationCustom: "TRANSLATION_CUSTOM_API_KEY",
+  dictationAgentCustom: "DICTATION_AGENT_CUSTOM_API_KEY",
+  dictationAgentVisionCustom: "DICTATION_AGENT_VISION_CUSTOM_API_KEY",
+  chatAgentCustom: "CHAT_AGENT_CUSTOM_API_KEY",
+  bedrockAccessKeyId: "BEDROCK_ACCESS_KEY_ID",
+  bedrockSecretAccessKey: "BEDROCK_SECRET_ACCESS_KEY",
+  bedrockSessionToken: "BEDROCK_SESSION_TOKEN",
+  azureApiKey: "AZURE_OPENAI_API_KEY",
+  vertexApiKey: "VERTEX_API_KEY",
+};
+// The names a $VAR field may point at. Object.values(SAVER_ENV) covers every
+// provider the store can save; CUSTOM_REASONING_API_KEY is the legacy alias of
+// CUSTOM_CLEANUP_API_KEY that environment.js still reads but no setter writes.
+// Keep in lockstep with SECRET_ENV_NAMES in src/config/secretKeys.js.
+const SECRET_ENV_SET = new Set<string>([...Object.values(SAVER_ENV), "CUSTOM_REASONING_API_KEY"]);
+
+function assertSavableSecret(saver: SecretProvider, key: string, current?: string): string {
+  const trimmed = key.trim();
+  const reason = classifySecretInput(trimmed, SAVER_ENV[saver], SECRET_ENV_SET);
+  // Re-saving the $NAME already shown in the field (login-shell import) is a
+  // no-op. An empty field + `$OPENAI_API_KEY` is a user self-reference and
+  // must throw — hydration writes imported refs via setState, not setters.
+  if (reason === "self-reference" && current === trimmed) return trimmed;
+  if (reason) {
+    const err = new Error(reason) as Error & { code: string };
+    err.code = reason;
+    throw err;
+  }
+  return trimmed;
+}
+
+type SecretSaveResult = { success?: boolean; reason?: string } | void | null;
+
 const secretSaveTimers: Partial<Record<SecretProvider, ReturnType<typeof setTimeout>>> = {};
-function debouncedSaveSecret(provider: SecretProvider, key: string) {
+function debouncedSaveSecret(
+  provider: SecretProvider,
+  key: string,
+  rollback?: { storeKey: string; previous: string }
+) {
   if (!isBrowser) return;
   const timer = secretSaveTimers[provider];
   if (timer) clearTimeout(timer);
   secretSaveTimers[provider] = setTimeout(() => {
     const api = window.electronAPI;
     const save = api?.[SECRET_IPC_SAVERS[provider]] as
-      ((k: string) => Promise<unknown>) | undefined;
-    save?.(key)?.catch((err) => {
-      logger.warn(
-        "Failed to persist secret",
-        { provider, error: (err as Error).message },
-        "settings"
-      );
-    });
+      ((k: string) => Promise<SecretSaveResult>) | undefined;
+    if (!save) return;
+    save(key)
+      .then((result) => {
+        if (!result || result.success !== false) return;
+        if (rollback) {
+          const current = String(useSettingsStore.getState()[rollback.storeKey] ?? "");
+          if (current === key) {
+            useSettingsStore.setState({ [rollback.storeKey]: rollback.previous });
+          }
+        }
+        logger.warn("Rejected secret persist", { provider, reason: result.reason }, "settings");
+      })
+      .catch((err) => {
+        logger.warn(
+          "Failed to persist secret",
+          { provider, error: (err as Error).message },
+          "settings"
+        );
+      });
   }, 250);
 }
 
@@ -1445,8 +1462,10 @@ function createSecretSetter(
   cacheProvider?: Parameters<typeof invalidateApiKeyCaches>[0]
 ) {
   return (key: string) => {
-    useSettingsStore.setState({ [storeKey]: key });
-    debouncedSaveSecret(saver, key);
+    const current = String(useSettingsStore.getState()[storeKey] ?? "");
+    const trimmed = assertSavableSecret(saver, key, current);
+    useSettingsStore.setState({ [storeKey]: trimmed });
+    debouncedSaveSecret(saver, trimmed, { storeKey, previous: current });
     invalidateApiKeyCaches(cacheProvider);
   };
 }
@@ -1556,15 +1575,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   dictationKey: readString("dictationKey", ""),
   activeDictationKey: null,
-  meetingKey: readString("meetingKey", ""),
   voiceAgentKey: readString("voiceAgentKey", ""),
   translationKey: readString("translationKey", ""),
   onboardingUseCases: readStringArray("onboardingUseCases", []),
   onboardingUseCaseNote: readString("onboardingUseCaseNote", ""),
   spokenLanguages: readStringArray("spokenLanguages", []),
-  meetingHotkeyLayoutMode: (readString("meetingHotkeyLayoutMode", "full-width") === "side-panel"
-    ? "side-panel"
-    : "full-width") as "side-panel" | "full-width",
   activationMode: (readString("activationMode", "tap") === "push" ? "push" : "tap") as
     "tap" | "push",
 
@@ -1596,46 +1611,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   floatingIconAutoHide: readBoolean("floatingIconAutoHide", false),
   startMinimized: readBoolean("startMinimized", false),
   notificationsEnabled: readBoolean("notificationsEnabled", true),
-  notifyMeetingDetection: readBoolean("notifyMeetingDetection", true),
-  notifyCalendarReminders: readBoolean("notifyCalendarReminders", true),
   autoUpdatesEnabled: readBoolean("autoUpdatesEnabled", true),
-  ...(() => {
-    let accounts: CalendarAccount[] = [];
-    try {
-      const parsed = JSON.parse(readString("gcalAccounts", "[]"));
-      if (Array.isArray(parsed)) accounts = parsed;
-    } catch {
-      /* use empty default */
-    }
-    return {
-      gcalAccounts: accounts,
-      gcalConnected: accounts.length > 0,
-      gcalEmail: accounts[0]?.email ?? "",
-    };
-  })(),
-  ...(() => {
-    let accounts: CalendarAccount[] = [];
-    try {
-      const parsed = JSON.parse(readString("mcalAccounts", "[]"));
-      if (Array.isArray(parsed)) accounts = parsed;
-    } catch {
-      /* use empty default */
-    }
-    return {
-      mcalAccounts: accounts,
-      mcalConnected: accounts.length > 0,
-    };
-  })(),
-  gcalPrimaryOnly: readBoolean("gcalPrimaryOnly", true),
-  mcalPrimaryOnly: readBoolean("mcalPrimaryOnly", true),
-  appleCalendarConnected: readBoolean("appleCalendarConnected", false),
-  meetingProcessDetection: readBoolean("meetingProcessDetection", true),
-  speakerDiarizationEnabled: readBoolean("speakerDiarizationEnabled", true),
   // Off by default: VAD on pause-heavy dictations can strip the speech and make
   // Whisper hallucinate the dictionary prompt as the transcript (#1454).
   dictationSileroEnabled: readBoolean("dictationSileroEnabled", false),
   noteRecordingSileroEnabled: readBoolean("noteRecordingSileroEnabled", true),
-  meetingSileroEnabled: readBoolean("meetingSileroEnabled", true),
   whisperVadThreshold: clampVadValue("threshold", readString("whisperVadThreshold", "0.5")),
   whisperVadMinSpeechDurationMs: clampVadValue(
     "minSpeechDurationMs",
@@ -1654,6 +1634,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     "samplesOverlap",
     readString("whisperVadSamplesOverlap", "0.5")
   ),
+  whisperIdleTimeoutMs: snapWhisperIdleTimeout(readNumber("whisperIdleTimeoutMs", 0)),
+  parakeetIdleTimeoutMs: snapParakeetIdleTimeout(readNumber("parakeetIdleTimeoutMs", 0)),
   panelStartPosition: (() => {
     const v = readString("panelStartPosition", "bottom-right");
     if (v === "bottom-right" || v === "center" || v === "bottom-left") return v;
@@ -1661,6 +1643,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   })(),
   showTranscriptionPreview: readBoolean("showTranscriptionPreview", false),
   autoPasteEnabled: readBoolean("autoPasteEnabled", true),
+  pressEnterAfterPaste: readBoolean("pressEnterAfterPaste", false),
   keepTranscriptionInClipboard: readBoolean("keepTranscriptionInClipboard", false),
   noteFilesEnabled: readBoolean("noteFilesEnabled", false),
   noteFilesPath: readString("noteFilesPath", ""),
@@ -1690,26 +1673,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     return "openwhispr" as InferenceMode;
   })(),
   cleanupRemoteUrl: readString("cleanupRemoteUrl", ""),
-
-  meetingTranscriptionMode: (() => {
-    const v = readString("meetingTranscriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
-  })(),
-  meetingUseLocalWhisper: readBoolean("meetingUseLocalWhisper", false),
-  meetingWhisperModel: readString("meetingWhisperModel", ""),
-  meetingLocalTranscriptionProvider: readScopedLocalProvider("meetingLocalTranscriptionProvider"),
-  meetingParakeetModel: readString("meetingParakeetModel", ""),
-  meetingCohereModel: readString("meetingCohereModel", ""),
-  meetingCloudTranscriptionProvider: readString("meetingCloudTranscriptionProvider", ""),
-  meetingCloudTranscriptionModel: readString("meetingCloudTranscriptionModel", ""),
-  meetingCloudTranscriptionBaseUrl: readString("meetingCloudTranscriptionBaseUrl", ""),
-  meetingCloudTranscriptionMode: readString("meetingCloudTranscriptionMode", ""),
-  meetingRemoteTranscriptionType: (() => {
-    const v = readString("meetingRemoteTranscriptionType", "lan");
-    return v === "openai-compatible" ? "openai-compatible" : ("lan" as SelfHostedType);
-  })(),
-  meetingRemoteTranscriptionUrl: readString("meetingRemoteTranscriptionUrl", ""),
 
   uploadTranscriptionMode: (() => {
     const v = readString("uploadTranscriptionMode", "openwhispr");
@@ -1783,26 +1746,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setRemoteTranscriptionModel: createStringSetter("remoteTranscriptionModel"),
   setCleanupMode: createStringSetter("cleanupMode") as (mode: InferenceMode) => void,
   setCleanupRemoteUrl: createStringSetter("cleanupRemoteUrl"),
-
-  setMeetingTranscriptionMode: createStringSetter("meetingTranscriptionMode") as (
-    mode: InferenceMode
-  ) => void,
-  setMeetingUseLocalWhisper: createBooleanSetter("meetingUseLocalWhisper"),
-  setMeetingWhisperModel: createStringSetter("meetingWhisperModel"),
-  setMeetingLocalTranscriptionProvider: (value: LocalTranscriptionProvider) => {
-    if (isBrowser) localStorage.setItem("meetingLocalTranscriptionProvider", value);
-    useSettingsStore.setState({ meetingLocalTranscriptionProvider: value });
-  },
-  setMeetingParakeetModel: createStringSetter("meetingParakeetModel"),
-  setMeetingCohereModel: createStringSetter("meetingCohereModel"),
-  setMeetingCloudTranscriptionProvider: createStringSetter("meetingCloudTranscriptionProvider"),
-  setMeetingCloudTranscriptionModel: createStringSetter("meetingCloudTranscriptionModel"),
-  setMeetingCloudTranscriptionBaseUrl: createStringSetter("meetingCloudTranscriptionBaseUrl"),
-  setMeetingCloudTranscriptionMode: createStringSetter("meetingCloudTranscriptionMode"),
-  setMeetingRemoteTranscriptionType: createStringSetter("meetingRemoteTranscriptionType") as (
-    type: SelfHostedType
-  ) => void,
-  setMeetingRemoteTranscriptionUrl: createStringSetter("meetingRemoteTranscriptionUrl"),
 
   setUploadTranscriptionMode: createStringSetter("uploadTranscriptionMode") as (
     mode: InferenceMode
@@ -2146,13 +2089,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setMistralApiKey: createSecretSetter("mistralApiKey", "mistral", "mistral"),
   setOpenrouterApiKey: createSecretSetter("openrouterApiKey", "openrouter", "openrouter"),
   setCortiClientId: (key: string) => {
-    set({ cortiClientId: key });
-    debouncedSaveSecret("cortiClientId", key);
+    const previous = useSettingsStore.getState().cortiClientId;
+    const trimmed = assertSavableSecret("cortiClientId", key, previous);
+    set({ cortiClientId: trimmed });
+    debouncedSaveSecret("cortiClientId", trimmed, { storeKey: "cortiClientId", previous });
     invalidateApiKeyCaches("corti");
   },
   setCortiClientSecret: (key: string) => {
-    set({ cortiClientSecret: key });
-    debouncedSaveSecret("cortiClientSecret", key);
+    const previous = useSettingsStore.getState().cortiClientSecret;
+    const trimmed = assertSavableSecret("cortiClientSecret", key, previous);
+    set({ cortiClientSecret: trimmed });
+    debouncedSaveSecret("cortiClientSecret", trimmed, { storeKey: "cortiClientSecret", previous });
     invalidateApiKeyCaches("corti");
   },
   setCortiApiKey: createSecretSetter("cortiApiKey", "cortiApiKey", "corti"),
@@ -2163,13 +2110,23 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setDeepgramApiKey: createSecretSetter("deepgramApiKey", "deepgram"),
   setAssemblyaiApiKey: createSecretSetter("assemblyaiApiKey", "assemblyai"),
   setCustomTranscriptionApiKey: (key: string) => {
-    set({ customTranscriptionApiKey: key });
-    debouncedSaveSecret("customTranscription", key);
+    const previous = useSettingsStore.getState().customTranscriptionApiKey;
+    const trimmed = assertSavableSecret("customTranscription", key, previous);
+    set({ customTranscriptionApiKey: trimmed });
+    debouncedSaveSecret("customTranscription", trimmed, {
+      storeKey: "customTranscriptionApiKey",
+      previous,
+    });
     invalidateApiKeyCaches("custom");
   },
   setCleanupCustomApiKey: (key: string) => {
-    set({ cleanupCustomApiKey: key });
-    debouncedSaveSecret("cleanupCustom", key);
+    const previous = useSettingsStore.getState().cleanupCustomApiKey;
+    const trimmed = assertSavableSecret("cleanupCustom", key, previous);
+    set({ cleanupCustomApiKey: trimmed });
+    debouncedSaveSecret("cleanupCustom", trimmed, {
+      storeKey: "cleanupCustomApiKey",
+      previous,
+    });
     invalidateApiKeyCaches("custom");
   },
 
@@ -2197,18 +2154,33 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     debouncedPersistToEnv();
   },
   setBedrockAccessKeyId: (key: string) => {
-    set({ bedrockAccessKeyId: key });
-    debouncedSaveSecret("bedrockAccessKeyId", key);
+    const previous = useSettingsStore.getState().bedrockAccessKeyId;
+    const trimmed = assertSavableSecret("bedrockAccessKeyId", key, previous);
+    set({ bedrockAccessKeyId: trimmed });
+    debouncedSaveSecret("bedrockAccessKeyId", trimmed, {
+      storeKey: "bedrockAccessKeyId",
+      previous,
+    });
     debouncedPersistToEnv();
   },
   setBedrockSecretAccessKey: (key: string) => {
-    set({ bedrockSecretAccessKey: key });
-    debouncedSaveSecret("bedrockSecretAccessKey", key);
+    const previous = useSettingsStore.getState().bedrockSecretAccessKey;
+    const trimmed = assertSavableSecret("bedrockSecretAccessKey", key, previous);
+    set({ bedrockSecretAccessKey: trimmed });
+    debouncedSaveSecret("bedrockSecretAccessKey", trimmed, {
+      storeKey: "bedrockSecretAccessKey",
+      previous,
+    });
     debouncedPersistToEnv();
   },
   setBedrockSessionToken: (key: string) => {
-    set({ bedrockSessionToken: key });
-    debouncedSaveSecret("bedrockSessionToken", key);
+    const previous = useSettingsStore.getState().bedrockSessionToken;
+    const trimmed = assertSavableSecret("bedrockSessionToken", key, previous);
+    set({ bedrockSessionToken: trimmed });
+    debouncedSaveSecret("bedrockSessionToken", trimmed, {
+      storeKey: "bedrockSessionToken",
+      previous,
+    });
     debouncedPersistToEnv();
   },
   setAzureEndpoint: (value: string) => {
@@ -2218,8 +2190,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     debouncedPersistToEnv();
   },
   setAzureApiKey: (key: string) => {
-    set({ azureApiKey: key });
-    debouncedSaveSecret("azureApiKey", key);
+    const previous = useSettingsStore.getState().azureApiKey;
+    const trimmed = assertSavableSecret("azureApiKey", key, previous);
+    set({ azureApiKey: trimmed });
+    debouncedSaveSecret("azureApiKey", trimmed, { storeKey: "azureApiKey", previous });
     debouncedPersistToEnv();
   },
   setAzureDeploymentName: (value: string) => {
@@ -2251,8 +2225,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     debouncedPersistToEnv();
   },
   setVertexApiKey: (key: string) => {
-    set({ vertexApiKey: key });
-    debouncedSaveSecret("vertexApiKey", key);
+    const previous = useSettingsStore.getState().vertexApiKey;
+    const trimmed = assertSavableSecret("vertexApiKey", key, previous);
+    set({ vertexApiKey: trimmed });
+    debouncedSaveSecret("vertexApiKey", trimmed, { storeKey: "vertexApiKey", previous });
     debouncedPersistToEnv();
   },
 
@@ -2264,10 +2240,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       window.electronAPI?.saveDictationKey?.(key);
     }
   },
-  setMeetingKey: (key: string) => {
-    if (isBrowser) localStorage.setItem("meetingKey", key);
-    set({ meetingKey: key });
-  },
   setVoiceAgentKey: createRegisteredHotkeySetter(
     "voiceAgentKey",
     "voice agent hotkey",
@@ -2278,11 +2250,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     "translation hotkey",
     () => window.electronAPI?.updateTranslationHotkey
   ),
-
-  setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => {
-    if (isBrowser) localStorage.setItem("meetingHotkeyLayoutMode", mode);
-    set({ meetingHotkeyLayoutMode: mode });
-  },
 
   setOnboardingUseCases: (useCases: string[]) => {
     if (isBrowser) localStorage.setItem("onboardingUseCases", JSON.stringify(useCases));
@@ -2343,6 +2310,38 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (isBrowser) localStorage.setItem("micWarmHoldSeconds", String(snapped));
     set({ micWarmHoldSeconds: snapped });
   },
+  setWhisperIdleTimeoutMs: (value: number) => {
+    const snapped = snapWhisperIdleTimeout(value);
+    if (isBrowser) localStorage.setItem("whisperIdleTimeoutMs", String(snapped));
+    set({ whisperIdleTimeoutMs: snapped });
+    if (isBrowser) {
+      window.electronAPI
+        ?.saveWhisperIdleTimeoutMs?.(snapped)
+        .catch((err: unknown) =>
+          logger.warn(
+            "Failed to persist whisper idle timeout",
+            { error: (err as Error).message },
+            "settings"
+          )
+        );
+    }
+  },
+  setParakeetIdleTimeoutMs: (value: number) => {
+    const snapped = snapParakeetIdleTimeout(value);
+    if (isBrowser) localStorage.setItem("parakeetIdleTimeoutMs", String(snapped));
+    set({ parakeetIdleTimeoutMs: snapped });
+    if (isBrowser) {
+      window.electronAPI
+        ?.saveParakeetIdleTimeoutMs?.(snapped)
+        .catch((err: unknown) =>
+          logger.warn(
+            "Failed to persist parakeet idle timeout",
+            { error: (err as Error).message },
+            "settings"
+          )
+        );
+    }
+  },
   setAudioRetentionDays: createNumberSetter("audioRetentionDays"),
   setTranscriptRetentionDays: createNumberSetter("transcriptRetentionDays"),
   setDataRetentionEnabled: (value: boolean) => {
@@ -2378,47 +2377,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
   },
 
-  setGcalAccounts: (accounts: CalendarAccount[]) => {
-    if (isBrowser) localStorage.setItem("gcalAccounts", JSON.stringify(accounts));
-    useSettingsStore.setState({
-      gcalAccounts: accounts,
-      gcalConnected: accounts.length > 0,
-      gcalEmail: accounts[0]?.email ?? "",
-    });
-  },
-  setMcalAccounts: (accounts: CalendarAccount[]) => {
-    if (isBrowser) localStorage.setItem("mcalAccounts", JSON.stringify(accounts));
-    useSettingsStore.setState({
-      mcalAccounts: accounts,
-      mcalConnected: accounts.length > 0,
-    });
-  },
   setNotificationsEnabled: createBooleanSetter("notificationsEnabled"),
-  setNotifyMeetingDetection: createBooleanSetter("notifyMeetingDetection"),
-  setNotifyCalendarReminders: createBooleanSetter("notifyCalendarReminders"),
   setAutoUpdatesEnabled: (enabled: boolean) => {
     if (isBrowser) localStorage.setItem("autoUpdatesEnabled", String(enabled));
     set({ autoUpdatesEnabled: enabled });
     if (isBrowser) window.electronAPI?.setAutoUpdatesEnabled?.(enabled);
-  },
-  setGcalPrimaryOnly: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("gcalPrimaryOnly", String(value));
-    useSettingsStore.setState({ gcalPrimaryOnly: value });
-    if (isBrowser) window.electronAPI?.gcalSetPrimaryOnly?.(value);
-  },
-  setMcalPrimaryOnly: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("mcalPrimaryOnly", String(value));
-    useSettingsStore.setState({ mcalPrimaryOnly: value });
-    if (isBrowser) window.electronAPI?.mcalSetPrimaryOnly?.(value);
-  },
-  setAppleCalendarConnected: createBooleanSetter("appleCalendarConnected"),
-  setMeetingProcessDetection: createBooleanSetter("meetingProcessDetection"),
-  setSpeakerDiarizationEnabled: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("speakerDiarizationEnabled", String(value));
-    useSettingsStore.setState({ speakerDiarizationEnabled: value });
-    if (isBrowser) {
-      window.electronAPI?.setSpeakerDiarizationEnabled?.(value);
-    }
   },
   setDictationSileroEnabled: (value: boolean) => {
     if (isBrowser) localStorage.setItem("dictationSileroEnabled", String(value));
@@ -2432,13 +2395,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     useSettingsStore.setState({ noteRecordingSileroEnabled: value });
     if (isBrowser) {
       window.electronAPI?.setWhisperVadConfig?.({ noteRecordingSileroEnabled: value });
-    }
-  },
-  setMeetingSileroEnabled: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("meetingSileroEnabled", String(value));
-    useSettingsStore.setState({ meetingSileroEnabled: value });
-    if (isBrowser) {
-      window.electronAPI?.setWhisperVadConfig?.({ meetingSileroEnabled: value });
     }
   },
   setWhisperVadThreshold: (value: number) => {
@@ -2500,6 +2456,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   setShowTranscriptionPreview: createBooleanSetter("showTranscriptionPreview"),
   setAutoPasteEnabled: createBooleanSetter("autoPasteEnabled"),
+  setPressEnterAfterPaste: createBooleanSetter("pressEnterAfterPaste"),
   setKeepTranscriptionInClipboard: createBooleanSetter("keepTranscriptionInClipboard"),
   setNoteFilesEnabled: createBooleanSetter("noteFilesEnabled"),
   setNoteFilesPath: createStringSetter("noteFilesPath"),
@@ -2578,13 +2535,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       cloudTranscriptionProvider
     );
     s.setTranscriptionMode(mode);
-    s.setMeetingTranscriptionMode(mode);
     s.setUploadTranscriptionMode(mode);
-    s.setMeetingUseLocalWhisper(useLocalWhisper);
-    s.setMeetingLocalTranscriptionProvider(localTranscriptionProvider);
-    s.setMeetingCloudTranscriptionMode(cloudTranscriptionMode);
-    s.setMeetingCloudTranscriptionProvider(cloudTranscriptionProvider);
-    s.setMeetingCloudTranscriptionModel(cloudTranscriptionModel);
     s.setUploadUseLocalWhisper(useLocalWhisper);
     s.setUploadLocalTranscriptionProvider(localTranscriptionProvider);
     s.setUploadCloudTranscriptionMode(cloudTranscriptionMode);
@@ -2652,22 +2603,35 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   updateApiKeys: (keys: Partial<ApiKeySettings>) => {
     const s = useSettingsStore.getState();
-    if (keys.openaiApiKey !== undefined) s.setOpenaiApiKey(keys.openaiApiKey);
-    if (keys.anthropicApiKey !== undefined) s.setAnthropicApiKey(keys.anthropicApiKey);
-    if (keys.geminiApiKey !== undefined) s.setGeminiApiKey(keys.geminiApiKey);
-    if (keys.groqApiKey !== undefined) s.setGroqApiKey(keys.groqApiKey);
-    if (keys.xaiApiKey !== undefined) s.setXaiApiKey(keys.xaiApiKey);
-    if (keys.mistralApiKey !== undefined) s.setMistralApiKey(keys.mistralApiKey);
-    if (keys.openrouterApiKey !== undefined) s.setOpenrouterApiKey(keys.openrouterApiKey);
-    if (keys.cortiClientId !== undefined) s.setCortiClientId(keys.cortiClientId);
-    if (keys.cortiClientSecret !== undefined) s.setCortiClientSecret(keys.cortiClientSecret);
-    if (keys.cortiApiKey !== undefined) s.setCortiApiKey(keys.cortiApiKey);
-    if (keys.tinfoilApiKey !== undefined) s.setTinfoilApiKey(keys.tinfoilApiKey);
-    if (keys.deepgramApiKey !== undefined) s.setDeepgramApiKey(keys.deepgramApiKey);
-    if (keys.assemblyaiApiKey !== undefined) s.setAssemblyaiApiKey(keys.assemblyaiApiKey);
-    if (keys.customTranscriptionApiKey !== undefined)
-      s.setCustomTranscriptionApiKey(keys.customTranscriptionApiKey);
-    if (keys.cleanupCustomApiKey !== undefined) s.setCleanupCustomApiKey(keys.cleanupCustomApiKey);
+    // Secret setters throw on a rejected $VAR (self-reference / unknown name).
+    // A bulk update must not abort halfway, so each key is applied on its own.
+    const apply = (fn: (value: string) => void, value: string | undefined) => {
+      if (value === undefined) return;
+      try {
+        fn(value);
+      } catch (error) {
+        logger.warn(
+          "Skipped invalid API key update",
+          { error: error instanceof Error ? error.message : String(error) },
+          "settings"
+        );
+      }
+    };
+    apply(s.setOpenaiApiKey, keys.openaiApiKey);
+    apply(s.setAnthropicApiKey, keys.anthropicApiKey);
+    apply(s.setGeminiApiKey, keys.geminiApiKey);
+    apply(s.setGroqApiKey, keys.groqApiKey);
+    apply(s.setXaiApiKey, keys.xaiApiKey);
+    apply(s.setMistralApiKey, keys.mistralApiKey);
+    apply(s.setOpenrouterApiKey, keys.openrouterApiKey);
+    apply(s.setCortiClientId, keys.cortiClientId);
+    apply(s.setCortiClientSecret, keys.cortiClientSecret);
+    apply(s.setCortiApiKey, keys.cortiApiKey);
+    apply(s.setTinfoilApiKey, keys.tinfoilApiKey);
+    apply(s.setDeepgramApiKey, keys.deepgramApiKey);
+    apply(s.setAssemblyaiApiKey, keys.assemblyaiApiKey);
+    apply(s.setCustomTranscriptionApiKey, keys.customTranscriptionApiKey);
+    apply(s.setCleanupCustomApiKey, keys.cleanupCustomApiKey);
   },
 
   updateChatAgentSettings: (settings: Partial<ChatAgentSettings>) => {
@@ -2707,40 +2671,6 @@ export const selectIsCloudNoteFormattingMode = (state: SettingsState) => {
   const cfg = selectResolvedNoteFormatting(state);
   return state.isSignedIn && cfg.mode === "openwhispr" && cfg.cloudMode === "openwhispr";
 };
-
-export interface ResolvedMeetingTranscription {
-  useLocalWhisper: boolean;
-  whisperModel: string;
-  localTranscriptionProvider: LocalTranscriptionProvider;
-  parakeetModel: string;
-  cohereModel: string;
-  cloudTranscriptionProvider: string;
-  cloudTranscriptionModel: string;
-  cloudTranscriptionBaseUrl: string;
-  cloudTranscriptionMode: string;
-  transcriptionMode: InferenceMode;
-  remoteTranscriptionType: SelfHostedType;
-  remoteTranscriptionUrl: string;
-}
-
-export const selectResolvedMeetingTranscription = (
-  state: SettingsState
-): ResolvedMeetingTranscription => ({
-  useLocalWhisper: state.meetingUseLocalWhisper,
-  whisperModel: state.meetingWhisperModel || state.whisperModel,
-  localTranscriptionProvider: state.meetingLocalTranscriptionProvider,
-  parakeetModel: state.meetingParakeetModel || state.parakeetModel,
-  cohereModel: state.meetingCohereModel || state.cohereModel,
-  cloudTranscriptionProvider:
-    state.meetingCloudTranscriptionProvider || state.cloudTranscriptionProvider,
-  cloudTranscriptionModel: state.meetingCloudTranscriptionModel || state.cloudTranscriptionModel,
-  cloudTranscriptionBaseUrl:
-    state.meetingCloudTranscriptionBaseUrl || state.cloudTranscriptionBaseUrl || "",
-  cloudTranscriptionMode: state.meetingCloudTranscriptionMode || state.cloudTranscriptionMode,
-  transcriptionMode: state.meetingTranscriptionMode,
-  remoteTranscriptionType: state.meetingRemoteTranscriptionType,
-  remoteTranscriptionUrl: state.meetingRemoteTranscriptionUrl || state.remoteTranscriptionUrl,
-});
 
 export interface ResolvedUploadTranscription {
   useLocalWhisper: boolean;
@@ -2942,15 +2872,6 @@ const TRANSCRIPTION_CONTEXT_KEYS: readonly TranscriptionContextKeys[] = [
     baseUrl: "cloudTranscriptionBaseUrl",
   },
   {
-    context: "meeting",
-    mode: "meetingTranscriptionMode",
-    useLocal: "meetingUseLocalWhisper",
-    cloudMode: "meetingCloudTranscriptionMode",
-    provider: "meetingCloudTranscriptionProvider",
-    model: "meetingCloudTranscriptionModel",
-    baseUrl: "meetingCloudTranscriptionBaseUrl",
-  },
-  {
     context: "upload",
     mode: "uploadTranscriptionMode",
     useLocal: "uploadUseLocalWhisper",
@@ -2983,9 +2904,7 @@ export function selectPolicyEffectiveSettings(
       policyState,
       "transcription",
       rawSelection,
-      keys.context === "meeting"
-        ? MEETING_TRANSCRIPTION_POLICY_CATALOG
-        : TRANSCRIPTION_POLICY_CATALOG
+      TRANSCRIPTION_POLICY_CATALOG
     );
     if (!selection) continue;
 
@@ -3423,6 +3342,43 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
+    // Sync whisper idle-unload timeout from main process (0 is a valid "Never" value,
+    // so check for a number explicitly rather than truthiness)
+    try {
+      const envIdleTimeoutMs = await window.electronAPI.getWhisperIdleTimeoutMs?.();
+      const snapped =
+        typeof envIdleTimeoutMs === "number" ? snapWhisperIdleTimeout(envIdleTimeoutMs) : undefined;
+      if (snapped !== undefined && snapped !== state.whisperIdleTimeoutMs) {
+        if (isBrowser) localStorage.setItem("whisperIdleTimeoutMs", String(snapped));
+        useSettingsStore.setState({ whisperIdleTimeoutMs: snapped });
+      }
+    } catch (err) {
+      logger.warn(
+        "Failed to sync whisper idle timeout on startup",
+        { error: (err as Error).message },
+        "settings"
+      );
+    }
+
+    // Sync parakeet idle-unload timeout from main process, same rationale as whisper's above.
+    try {
+      const envParakeetIdleTimeoutMs = await window.electronAPI.getParakeetIdleTimeoutMs?.();
+      const snappedParakeet =
+        typeof envParakeetIdleTimeoutMs === "number"
+          ? snapParakeetIdleTimeout(envParakeetIdleTimeoutMs)
+          : undefined;
+      if (snappedParakeet !== undefined && snappedParakeet !== state.parakeetIdleTimeoutMs) {
+        if (isBrowser) localStorage.setItem("parakeetIdleTimeoutMs", String(snappedParakeet));
+        useSettingsStore.setState({ parakeetIdleTimeoutMs: snappedParakeet });
+      }
+    } catch (err) {
+      logger.warn(
+        "Failed to sync parakeet idle timeout on startup",
+        { error: (err as Error).message },
+        "settings"
+      );
+    }
+
     // Sync UI language from main process
     try {
       const envLanguage = await window.electronAPI.getUiLanguage?.();
@@ -3495,36 +3451,6 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
-    // Audio detection is derived from the meeting-notification toggle in
-    // sync-notification-preferences, so it is not sent here.
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.meetingDetectionSetPreferences?.({
-        processDetection: currentState.meetingProcessDetection,
-      });
-    } catch (err) {
-      logger.warn(
-        "Failed to sync meeting detection preferences on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.syncNotificationPreferences?.({
-        notificationsEnabled: currentState.notificationsEnabled,
-        notifyMeetingDetection: currentState.notifyMeetingDetection,
-        notifyCalendarReminders: currentState.notifyCalendarReminders,
-      });
-    } catch (err) {
-      logger.warn(
-        "Failed to sync notification preferences on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
     try {
       await window.electronAPI.setAutoUpdatesEnabled?.(
         useSettingsStore.getState().autoUpdatesEnabled
@@ -3537,61 +3463,11 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
-    // The main-process DB is the source of truth for the Apple Calendar connection
-    try {
-      const status = await window.electronAPI.acalGetConnectionStatus?.();
-      if (status) {
-        useSettingsStore.getState().setAppleCalendarConnected(status.connected);
-      }
-    } catch (err) {
-      logger.warn(
-        "Failed to hydrate Apple Calendar connection status",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.gcalSetPrimaryOnly?.(currentState.gcalPrimaryOnly);
-    } catch (err) {
-      logger.warn(
-        "Failed to sync gcal primary-only on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.mcalSetPrimaryOnly?.(currentState.mcalPrimaryOnly);
-    } catch (err) {
-      logger.warn(
-        "Failed to sync mcal primary-only on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      const currentState = useSettingsStore.getState();
-      await window.electronAPI.setSpeakerDiarizationEnabled?.(
-        currentState.speakerDiarizationEnabled
-      );
-    } catch (err) {
-      logger.warn(
-        "Failed to sync speaker diarization preference on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
     try {
       const currentState = useSettingsStore.getState();
       await window.electronAPI.setWhisperVadConfig?.({
         dictationSileroEnabled: currentState.dictationSileroEnabled,
         noteRecordingSileroEnabled: currentState.noteRecordingSileroEnabled,
-        meetingSileroEnabled: currentState.meetingSileroEnabled,
         threshold: currentState.whisperVadThreshold,
         minSpeechDurationMs: currentState.whisperVadMinSpeechDurationMs,
         minSilenceDurationMs: currentState.whisperVadMinSilenceDurationMs,
@@ -3674,18 +3550,6 @@ export async function initializeSettings(): Promise<void> {
     }
 
     useSettingsStore.setState({ [key]: value });
-
-    if (key === "gcalAccounts" && Array.isArray(value)) {
-      const accounts = value as CalendarAccount[];
-      useSettingsStore.setState({
-        gcalConnected: accounts.length > 0,
-        gcalEmail: accounts[0]?.email ?? "",
-      });
-    }
-
-    if (key === "mcalAccounts" && Array.isArray(value)) {
-      useSettingsStore.setState({ mcalConnected: (value as CalendarAccount[]).length > 0 });
-    }
 
     if (key === "uiLanguage" && typeof value === "string") {
       void i18n.changeLanguage(value);

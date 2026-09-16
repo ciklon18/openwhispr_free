@@ -723,7 +723,7 @@
       "ollama": "（Ollama）",
       "localAi": "（LocalAI）",
       "apiKeyOptional": "API Key（選填）",
-      "apiKeyHelp": "選填。作為 Bearer token 傳送以進行驗證。這與你的 OpenAI API Key 無關。",
+      "apiKeyHelp": "選填。留空則使用對應環境變數，或輸入 $OPENAI_API_KEY。啟動時會匯入 shell 匯出的變數（例如 ~/.zshrc）。",
       "applyAndRefresh": "套用並重新整理",
       "queryPrefix": "我們將查詢",
       "querySuffix": "以取得可用模型。",
@@ -863,7 +863,8 @@
     "tinfoil": {
       "transportNote": "Tinfoil 串流轉錄使用 Voxtral Mini 4B，批次轉錄使用 Voxtral Small 24B。",
       "docsLink": "查看文件"
-    }
+    },
+    "apiKeyEnvHelp": "選填。留空則使用 CUSTOM_TRANSCRIPTION_API_KEY，或輸入 $OPENAI_API_KEY。啟動時會匯入 shell 匯出的變數（例如 ~/.zshrc）。"
   },
   "hooks": {
     "audioRecording": {
@@ -1929,6 +1930,8 @@
         "title": "剪貼簿",
         "autoPaste": "自動貼上",
         "autoPasteDescription": "聽寫結束後自動將轉錄文字貼上到目前使用中的應用程式",
+        "pressEnterAfterPaste": "貼上後按 Enter",
+        "pressEnterAfterPasteDescription": "文字貼上完成後傳送 Enter 以送出。在終端機和命令選擇區中請謹慎使用，因為 Enter 會立即執行命令。",
         "keepInClipboard": "將轉錄內容保留在剪貼簿",
         "keepInClipboardDescription": "將語音輸入的文字保留在剪貼簿中，以便在需要時手動貼上"
       },
@@ -2273,7 +2276,31 @@
           }
         }
       },
-      "meetingEnterpriseOnly": "貴組織僅允許企業雲端轉錄，尚不支援會議錄音。"
+      "meetingEnterpriseOnly": "貴組織僅允許企業雲端轉錄，尚不支援會議錄音。",
+      "idleUnload": {
+        "title": "閒置卸載",
+        "description": "在一段時間無操作後自動停止本機 Whisper 伺服器，以釋放 RAM 和 VRAM",
+        "label": "卸載時間",
+        "options": {
+          "0": "永不",
+          "300000": "5 分鐘",
+          "900000": "15 分鐘",
+          "1800000": "30 分鐘",
+          "3600000": "60 分鐘"
+        }
+      },
+      "idleUnloadParakeet": {
+        "title": "閒置卸載",
+        "description": "在一段時間無操作後自動停止本機 Parakeet 伺服器，以釋放 RAM 和 VRAM",
+        "label": "卸載時間",
+        "options": {
+          "0": "永不",
+          "300000": "5 分鐘",
+          "900000": "15 分鐘",
+          "1800000": "30 分鐘",
+          "3600000": "60 分鐘"
+        }
+      }
     },
     "intelligence": {
       "gpuDevice": {
@@ -3491,14 +3518,16 @@
     "remindLater": "稍後提醒我"
   },
   "apiKeyInput": {
-    "placeholder": "輸入你的 API Key",
+    "placeholder": "貼上 API Key 或 $ENV_VAR",
     "label": "API Key",
     "save": "儲存",
     "cancelEdit": "取消編輯",
     "edit": "編輯",
     "add": "新增",
     "editButton": "編輯金鑰",
-    "addButton": "新增金鑰"
+    "addButton": "新增金鑰",
+    "selfReference": "Use a different variable name here, or leave this field empty.",
+    "unknownRef": "Only OpenWhispr secret names can be referenced (for example $OPENAI_API_KEY)."
   },
   "gpu": {
     "transcriptionBanner": "使用 GPU 加速轉錄",

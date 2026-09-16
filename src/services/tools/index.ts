@@ -6,8 +6,7 @@ import { updateNoteTool } from "./updateNoteTool";
 import { listFoldersTool } from "./listFoldersTool";
 import { clipboardTool } from "./clipboardTool";
 import { webSearchTool } from "./webSearchTool";
-import { calendarTool } from "./calendarTool";
-import { calendarAvailabilityTool } from "./calendarAvailabilityTool";
+
 import { createSnippetTool, createUpdateSnippetsTool, type SnippetActions } from "./snippetTool";
 import { createUpdateDictionaryTool, type DictionaryActions } from "./dictionaryTool";
 import type { ContainerScope } from "../../types/chat";
@@ -17,7 +16,7 @@ export type { ToolDefinition, ToolResult } from "./ToolRegistry";
 
 interface ToolRegistrySettings {
   isSignedIn: boolean;
-  calendarConnected: boolean;
+
   cloudBackupEnabled: boolean;
   /** Pins search_notes to a container (overview chat); the LLM cannot widen it. */
   searchScope?: ContainerScope;
@@ -46,11 +45,6 @@ export function createToolRegistry(settings: ToolRegistrySettings): ToolRegistry
 
   if (settings.isSignedIn && settings.webSearchEnabled) {
     registry.register(webSearchTool);
-  }
-
-  if (settings.calendarConnected) {
-    registry.register(calendarTool);
-    registry.register(calendarAvailabilityTool);
   }
 
   return registry;

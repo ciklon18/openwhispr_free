@@ -70,9 +70,7 @@ const EXPECTED_SHARED_FIELD_DIRECTIONS = {
   "src/components/SettingsPage.tsx": ["ltr", "ltr", "ltr", "ltr", "ltr", "ltr"],
   "src/components/SnippetsView.tsx": ["auto", "auto", "auto", "auto"],
   "src/components/TranscriptionModelPicker.tsx": ["ltr", "ltr", "ltr"],
-  "src/components/notes/ActionManagerDialog.tsx": ["auto", "auto"],
-  "src/components/notes/DeleteSpaceDialog.tsx": ["auto"],
-  "src/components/notes/UploadAudioView.tsx": ["auto"],
+  "src/components/upload/UploadAudioView.tsx": ["auto"],
   "src/components/onboarding/ProviderSetupStep.tsx": ["ltr", "ltr", "ltr", "ltr", "ltr", "ltr"],
   "src/components/settings/DictationAgentSettings.tsx": ["auto"],
   "src/components/settings/EnterpriseCheckoutDialog.tsx": ["inherit"],
@@ -92,17 +90,7 @@ const EXPECTED_NATIVE_FIELD_DIRECTIONS = {
   "src/components/ReferralDashboard.tsx": ["ltr"],
   "src/components/SettingsPage.tsx": ["inherit"],
   "src/components/chat/ChatInput.tsx": ["auto"],
-  "src/components/notes/ActionManagerDialog.tsx": ["auto"],
-  "src/components/notes/AddNotesToFolderDialog.tsx": ["auto"],
-  "src/components/notes/MeetingTranscriptChat.tsx": ["ltr", "auto"],
-  "src/components/notes/NoteBottomBar.tsx": ["auto"],
-  "src/components/notes/NoteEditor.tsx": ["auto", "auto"],
-  "src/components/notes/NoteParticipants.tsx": ["auto"],
-  "src/components/notes/NotesOnboarding.tsx": ["auto", "auto", "auto"],
-  "src/components/notes/ShareNoteDialog.tsx": ["auto"],
-  "src/components/notes/SpaceNameField.tsx": ["auto"],
-  "src/components/notes/SpacesTree.tsx": ["auto", "auto", "auto", "auto"],
-  "src/components/notes/UploadAudioView.tsx": ["ltr", "ltr", "inherit"],
+  "src/components/upload/UploadAudioView.tsx": ["ltr", "ltr", "inherit"],
   "src/components/onboarding/DemoStep.tsx": ["auto"],
   "src/components/onboarding/LanguageSelectionStep.tsx": ["auto"],
   "src/components/onboarding/UseCaseStep.tsx": ["auto"],
@@ -171,13 +159,10 @@ test("representative prose, identity, secret, and rich-editor surfaces keep thei
     /<Input\s+dir="auto"\s+ref=\{addInputRef\}/
   );
   assert.match(
-    source("src/components/notes/UploadAudioView.tsx"),
+    source("src/components/upload/UploadAudioView.tsx"),
     /<input\s+dir="ltr"\s+type="url"/
   );
-  assert.match(
-    source("src/components/notes/ShareNoteDialog.tsx"),
-    /<input\s+dir="auto"[\s\S]*?placeholder=\{t\("noteEditor\.share\.dialog\.searchPlaceholder"\)\}/
-  );
+
   assert.match(
     source("src/components/ui/ApiKeyInput.tsx"),
     /<span\s+dir="ltr"[\s\S]*?\{maskKey\(apiKey\)\}/
@@ -193,17 +178,4 @@ test("representative prose, identity, secret, and rich-editor surfaces keep thei
     /function HotkeyChord[\s\S]*?<div\s+dir="ltr"/
   );
   assert.match(source("src/components/ErrorBoundary.tsx"), /<pre\s+dir="ltr"/);
-  assert.match(
-    source("src/components/notes/NoteEditor.tsx"),
-    /<div\s+dir="auto"\s+ref=\{titleRef\}/
-  );
-  assert.match(source("src/components/ui/RichTextEditor.tsx"), /dir: "auto"/);
-  assert.match(
-    source("src/index.css"),
-    /\.rich-text-editor-content \{[\s\S]*?unicode-bidi: plaintext;/
-  );
-  assert.match(
-    source("src/index.css"),
-    /\.rich-text-editor-content code,[\s\S]*?direction: ltr;[\s\S]*?unicode-bidi: isolate;/
-  );
 });

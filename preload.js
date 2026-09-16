@@ -169,6 +169,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteTranscriptionAudio: (id) => ipcRenderer.invoke("delete-transcription-audio", id),
   getAudioStorageUsage: () => ipcRenderer.invoke("get-audio-storage-usage"),
   deleteAllAudio: () => ipcRenderer.invoke("delete-all-audio"),
+  startRecordingSpool: (sessionId, mimeType) =>
+    ipcRenderer.invoke("start-recording-spool", sessionId, mimeType),
+  appendRecordingSpoolChunk: (sessionId, chunk) =>
+    ipcRenderer.send("append-recording-spool-chunk", sessionId, chunk),
+  finishRecordingSpool: (sessionId) => ipcRenderer.invoke("finish-recording-spool", sessionId),
   syncRetentionSettings: (settings) => ipcRenderer.send("retention-settings-changed", settings),
   retryTranscription: (id, settings) => ipcRenderer.invoke("retry-transcription", id, settings),
   updateTranscriptionText: (id, text, rawText) =>
@@ -389,6 +394,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // BYOK API keys (get/save for every provider in the secretKeys manifest)
   ...secretKeyApi,
+  resolveSecretRef: (value) => ipcRenderer.invoke("resolve-secret-ref", value),
 
   // Clipboard functions
   checkAccessibilityPermission: (silent) =>
@@ -493,10 +499,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     "diarization-download-progress",
     (callback) => (_event, data) => callback(data)
   ),
-  onMeetingDiarizationComplete: registerListener(
-    "meeting-diarization-complete",
-    (callback) => (_event, data) => callback(data)
-  ),
 
   // Speaker name mapping
   getSpeakerMappings: (noteId) => ipcRenderer.invoke("get-speaker-mappings", noteId),
@@ -515,8 +517,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   windowMaximize: () => ipcRenderer.invoke("window-maximize"),
   windowClose: () => ipcRenderer.invoke("window-close"),
   windowIsMaximized: () => ipcRenderer.invoke("window-is-maximized"),
-  snapToMeetingMode: () => ipcRenderer.invoke("snap-to-meeting-mode"),
-  restoreFromMeetingMode: () => ipcRenderer.invoke("restore-from-meeting-mode"),
   getPlatform: () => process.platform,
 
   // Cleanup function
@@ -606,6 +606,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   proxyXaiTranscription: (data) => ipcRenderer.invoke("proxy-xai-transcription", data),
   proxyMistralTranscription: (data) => ipcRenderer.invoke("proxy-mistral-transcription", data),
   proxyGeminiTranscription: (data) => ipcRenderer.invoke("proxy-gemini-transcription", data),
+  proxyBatchDictation: (endpoint, headers, formDataFieldsArray, audioBuffer, mimeType, fileName) =>
+    ipcRenderer.invoke(
+      "proxy-batch-dictation",
+      endpoint,
+      headers,
+      formDataFieldsArray,
+      audioBuffer,
+      mimeType,
+      fileName
+    ),
 
   // Corti API
   getCortiClientId: () => ipcRenderer.invoke("get-corti-client-id"),
@@ -659,6 +669,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Activation mode persistence (file-based for reliable startup)
   getActivationMode: () => ipcRenderer.invoke("get-activation-mode"),
   saveActivationMode: (mode) => ipcRenderer.invoke("save-activation-mode", mode),
+
+  // Whisper server idle-unload timeout persistence (file-based for reliable startup)
+  getWhisperIdleTimeoutMs: () => ipcRenderer.invoke("get-whisper-idle-timeout"),
+  saveWhisperIdleTimeoutMs: (ms) => ipcRenderer.invoke("save-whisper-idle-timeout", ms),
+
+  // Parakeet server idle-unload timeout persistence, same pattern as whisper's above
+  getParakeetIdleTimeoutMs: () => ipcRenderer.invoke("get-parakeet-idle-timeout"),
+  saveParakeetIdleTimeoutMs: (ms) => ipcRenderer.invoke("save-parakeet-idle-timeout", ms),
 
   saveAllKeysToEnv: () => ipcRenderer.invoke("save-all-keys-to-env"),
   syncStartupPreferences: (prefs) => ipcRenderer.invoke("sync-startup-preferences", prefs),
@@ -896,59 +914,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, data) => callback(data)
   ),
 
-  // Meeting transcription (streaming, dual-channel)
-  meetingTranscriptionPrepare: (options) =>
-    ipcRenderer.invoke("meeting-transcription-prepare", options),
-  meetingTranscriptionStart: (options) =>
-    ipcRenderer.invoke("meeting-transcription-start", options),
-  meetingTranscriptionSend: (buffer, source) =>
-    ipcRenderer.send("meeting-transcription-send", buffer, source),
-  meetingTranscriptionSetSystemAudioAvailable: (sessionId, available) =>
-    ipcRenderer.invoke("meeting-transcription-set-system-audio-available", sessionId, available),
-  meetingTranscriptionStop: (expectedSessionId) =>
-    ipcRenderer.invoke("meeting-transcription-stop", expectedSessionId),
-  meetingTranscriptionCancel: () => ipcRenderer.invoke("meeting-transcription-cancel"),
-  onMeetingTranscriptionSegment: registerListener(
-    "meeting-transcription-segment",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingSpeakerIdentified: registerListener(
-    "meeting-speaker-identified",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingSpeakersMerged: registerListener(
-    "meeting-speakers-merged",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingSessionSpeakerConfigUpdated: registerListener(
-    "meeting-session-speaker-config-updated",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingTranscriptionError: registerListener(
-    "meeting-transcription-error",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingTranscriptionFatalError: registerListener(
-    "meeting-transcription-fatal-error",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingSystemAudioSilent: registerListener(
-    "meeting-system-audio-silent",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingSystemAudioDegraded: registerListener(
-    "meeting-system-audio-degraded",
-    (callback) => () => callback()
-  ),
-  onMeetingSystemAudioInterrupted: registerListener(
-    "meeting-system-audio-interrupted",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingSystemAudioResumed: registerListener(
-    "meeting-system-audio-resumed",
-    (callback) => () => callback()
-  ),
-
   // Dictation realtime streaming
   dictationRealtimeWarmup: (options) => ipcRenderer.invoke("dictation-realtime-warmup", options),
   dictationRealtimeStart: (options) => ipcRenderer.invoke("dictation-realtime-start", options),
@@ -1035,7 +1000,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Notify main process of activation mode changes (for Windows Push-to-Talk)
   notifyActivationModeChanged: (mode) => ipcRenderer.send("activation-mode-changed", mode),
   notifyHotkeyChanged: (hotkey) => ipcRenderer.send("hotkey-changed", hotkey),
-  registerMeetingHotkey: (hotkey) => ipcRenderer.invoke("register-meeting-hotkey", hotkey),
 
   // Floating icon auto-hide
   notifyFloatingIconAutoHideChanged: (enabled) =>
@@ -1252,98 +1216,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   clearSnippetCloudId: (id) => ipcRenderer.invoke("db-clear-snippet-cloud-id", id),
   broadcastSnippetsUpdated: () => ipcRenderer.invoke("db-broadcast-snippets-updated"),
 
-  // Google Calendar
-  gcalStartOAuth: () => ipcRenderer.invoke("gcal-start-oauth"),
-  gcalDisconnect: (email) => ipcRenderer.invoke("gcal-disconnect", email),
-  gcalGetConnectionStatus: () => ipcRenderer.invoke("gcal-get-connection-status"),
-  gcalGetCalendars: () => ipcRenderer.invoke("gcal-get-calendars"),
-  gcalSetCalendarSelection: (calendarId, isSelected) =>
-    ipcRenderer.invoke("gcal-set-calendar-selection", calendarId, isSelected),
-  gcalSetPrimaryOnly: (value) => ipcRenderer.invoke("gcal-set-primary-only", value),
-  gcalSyncEvents: () => ipcRenderer.invoke("gcal-sync-events"),
-  gcalGetUpcomingEvents: (windowMinutes) =>
-    ipcRenderer.invoke("gcal-get-upcoming-events", windowMinutes),
-  calendarGetAvailability: (request) => ipcRenderer.invoke("calendar-get-availability", request),
-  gcalGetEvent: (eventId) => ipcRenderer.invoke("gcal-get-event", eventId),
-
-  // Microsoft Calendar
-  mcalStartOAuth: () => ipcRenderer.invoke("mcal-start-oauth"),
-  mcalDisconnect: (email) => ipcRenderer.invoke("mcal-disconnect", email),
-  mcalGetConnectionStatus: () => ipcRenderer.invoke("mcal-get-connection-status"),
-  mcalSetPrimaryOnly: (value) => ipcRenderer.invoke("mcal-set-primary-only", value),
-
-  // Apple Calendar (macOS EventKit)
-  acalConnect: () => ipcRenderer.invoke("acal-connect"),
-  acalDisconnect: () => ipcRenderer.invoke("acal-disconnect"),
-  acalGetConnectionStatus: () => ipcRenderer.invoke("acal-get-connection-status"),
-  openCalendarPrivacySettings: () => ipcRenderer.invoke("open-calendar-privacy-settings"),
-
   // Contacts
   searchContacts: (query) => ipcRenderer.invoke("search-contacts", query),
   upsertContact: (contact) => ipcRenderer.invoke("upsert-contact", contact),
   getMD5Hash: (text) => ipcRenderer.invoke("get-md5-hash", text),
 
-  // Google Calendar event listeners
-  onGcalConnectionChanged: registerListener(
-    "gcal-connection-changed",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onGcalEventsSynced: registerListener(
-    "gcal-events-synced",
-    (callback) => (_event, data) => callback(data)
-  ),
-
-  // Microsoft Calendar event listeners
-  onMcalConnectionChanged: registerListener(
-    "mcal-connection-changed",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMcalEventsSynced: registerListener(
-    "mcal-events-synced",
-    (callback) => (_event, data) => callback(data)
-  ),
-
-  // Apple Calendar event listeners
-  onAcalConnectionChanged: registerListener(
-    "acal-connection-changed",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onAcalEventsSynced: registerListener(
-    "acal-events-synced",
-    (callback) => (_event, data) => callback(data)
-  ),
-
-  // Meeting detection
-  meetingDetectionGetPreferences: () => ipcRenderer.invoke("meeting-detection-get-preferences"),
-  meetingDetectionSetPreferences: (prefs) =>
-    ipcRenderer.invoke("meeting-detection-set-preferences", prefs),
-  syncNotificationPreferences: (prefs) =>
-    ipcRenderer.invoke("sync-notification-preferences", prefs),
-  setSpeakerDiarizationEnabled: (enabled) =>
-    ipcRenderer.invoke("meeting-set-speaker-diarization-enabled", { enabled }),
-  setMeetingSessionSpeakerConfig: (config) =>
-    ipcRenderer.invoke("meeting-set-session-speaker-config", config),
+  // Whisper VAD config
   getWhisperVadConfig: () => ipcRenderer.invoke("whisper-vad-get-config"),
   setWhisperVadConfig: (config) => ipcRenderer.invoke("whisper-vad-set-config", config),
-  onMeetingNotificationData: registerListener(
-    "meeting-notification-data",
-    (callback) => (_event, data) => callback(data)
-  ),
-  onMeetingAutoEndRequested: registerListener(
-    "meeting-auto-end-requested",
-    (callback) => (_event, data) => callback(data)
-  ),
-  getMeetingNotificationData: () => ipcRenderer.invoke("get-meeting-notification-data"),
-  meetingNotificationReady: () => ipcRenderer.invoke("meeting-notification-ready"),
-  meetingNotificationRespond: (detectionId, action) =>
-    ipcRenderer.invoke("meeting-notification-respond", detectionId, action),
-  joinCalendarMeeting: (eventId) => ipcRenderer.invoke("join-calendar-meeting", eventId),
-  startManualMeeting: () => ipcRenderer.invoke("start-manual-meeting"),
-  getPendingMeetingNoteNavigation: () => ipcRenderer.invoke("get-pending-meeting-note-navigation"),
-  onMeetingNoteNavigationPending: registerListener(
-    "meeting-note-navigation-pending",
-    (callback) => () => callback()
-  ),
   getPendingNoteNavigation: () => ipcRenderer.invoke("get-pending-note-navigation"),
   onNoteNavigationPending: registerListener(
     "note-navigation-pending",

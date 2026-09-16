@@ -99,25 +99,7 @@ const { transcribeWithGemini } = require("./geminiTranscription");
 const AudioStorageManager = require("./audioStorage");
 const LocalModelDownloadStatus = require("./localModelDownloadStatus");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
-const createMeetingTranscriptionLifecycle = require("./meetingTranscriptionLifecycle");
-const liveSpeakerIdentifier = require("./liveSpeakerIdentifier");
-const { supportsLiveSpeakerIdentification } = require("./liveSpeakerIdPolicy");
-const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
-const createMeetingSystemAudioWatchdog = require("./meetingSystemAudioWatchdog");
-const {
-  partitionPendingMicFinals,
-  isRiskyMicDuplicateProfile,
-  isDuplicateMicSegment,
-  selectRacingMicEntryIndices,
-  partitionOverlappingPendingMicFinals,
-} = require("./meetingMicHoldback");
-const {
-  computeChunkStats,
-  resolveMicChunkAction,
-  MEETING_MIC_SILENCE_RMS,
-  MEETING_MIC_SILENCE_PEAK,
-} = require("./meetingMicGate");
-const { resolveDiarizationInput } = require("./meetingDiarizationInput");
+
 const { applySmartSpacing } = require("./smartSpacing");
 const { applyAutoLearnSetting } = require("./autoLearnSetting");
 const {
@@ -151,13 +133,7 @@ const {
   resolveContextSileroEnabled,
 } = require("./whisperVadConfig");
 
-const {
-  ALLOWED_MEETING_PROVIDERS,
-  getMeetingStreamingClient,
-  getMeetingConnectionKey,
-} = require("./meetingStreamingProviders");
 const { fetchRealtimeTokenForProvider } = require("./realtimeTokenProviders");
-const { getCalendarAvailability } = require("./calendarAvailabilityService");
 
 // Meeting capture runs at 24 kHz (see meetingRecordingStore AudioContext); cloud
 // streaming providers must be told the true PCM rate or they misread the audio.
@@ -660,13 +636,13 @@ class IPCHandlers {
       meetingSileroEnabled: true,
       ...DEFAULT_WHISPER_VAD_CONFIG,
     };
-    liveSpeakerIdentifier.setDiarizationManager(this.diarizationManager);
     this._setupTextEditMonitor();
     this._setupRetentionCleanup();
     this._logDetectedGpus();
     // Warm the OS default mic answer before the first hotkey press (~2s on Windows).
     resolveSystemDefaultMicrophone();
     this.setupHandlers();
+    this._recoverOrphanedRecordings();
     // Lives for the app's lifetime; IPCHandlers has no teardown path.
     tokenStore.subscribe(({ generation, token }) => {
       this.enterpriseIdentityManager?.clear();
@@ -1188,6 +1164,25 @@ class IPCHandlers {
     }
   }
 
+  _recoverOrphanedRecordings() {
+    try {
+      const recovered = this.audioStorageManager.recoverOrphanedRecordings(this.databaseManager);
+      if (recovered && recovered.length > 0) {
+        setImmediate(() => {
+          for (const item of recovered) {
+            broadcastToWindows("transcription-added", item);
+          }
+        });
+      }
+    } catch (error) {
+      debugLogger.error(
+        "Failed to recover orphaned recordings",
+        { error: error.message },
+        "audio-storage"
+      );
+    }
+  }
+
   _setupTextEditMonitor() {
     if (!this.textEditMonitor) return;
 
@@ -1424,6 +1419,11 @@ class IPCHandlers {
     });
 
     ipcMain.handle("test-provider-connection", async (_event, config) => {
+      const { ENTERPRISE_SECRET_FIELDS } = require("./enterpriseProviderErrors");
+      config = { ...config };
+      for (const key of ["apiKey", "clientId", "clientSecret", ...ENTERPRISE_SECRET_FIELDS]) {
+        if (config[key]) config[key] = this.environmentManager.resolveSecretRef(config[key]);
+      }
       if (config?.provider === "corti" && config?.scope === "transcription") {
         try {
           const clientId = String(config.clientId || "").trim();
@@ -1546,11 +1546,6 @@ class IPCHandlers {
       return this.windowManager.getMainWindowHorizontalDirection();
     });
 
-    ipcMain.handle("set-notification-interactivity", (event, interactive) => {
-      this.windowManager.setNotificationInteractivity(event.sender, Boolean(interactive));
-      return { success: true };
-    });
-
     ipcMain.handle("resize-main-window", (event, sizeKey) => {
       return this.windowManager.resizeMainWindow(sizeKey);
     });
@@ -1564,9 +1559,13 @@ class IPCHandlers {
     });
 
     for (const k of BYOK_API_KEYS) {
-      ipcMain.handle(`get-${k.base}-key`, () => this.environmentManager[k.get]());
+      ipcMain.handle(`get-${k.base}-key`, () => this.environmentManager.getRawKey(k.env));
       ipcMain.handle(`save-${k.base}-key`, (event, key) => this.environmentManager[k.save](key));
     }
+
+    ipcMain.handle("resolve-secret-ref", (_event, value) => {
+      return this.environmentManager.resolveSecretRef(value);
+    });
 
     ipcMain.handle("db-save-transcription", async (event, text, rawText, options) => {
       const result = this.databaseManager.saveTranscription(text, rawText, options);
@@ -1757,6 +1756,19 @@ class IPCHandlers {
 
     ipcMain.handle("get-audio-storage-usage", async () => {
       return this.audioStorageManager.getStorageUsage();
+    });
+
+    // Recording spool handlers for crash recovery (#2073)
+    ipcMain.handle("start-recording-spool", async (_event, sessionId, mimeType) => {
+      return this.audioStorageManager.startRecordingSpool(sessionId, mimeType);
+    });
+
+    ipcMain.on("append-recording-spool-chunk", (_event, sessionId, chunk) => {
+      this.audioStorageManager.appendRecordingSpoolChunk(sessionId, chunk);
+    });
+
+    ipcMain.handle("finish-recording-spool", async (_event, sessionId) => {
+      return this.audioStorageManager.finishRecordingSpool(sessionId);
     });
 
     ipcMain.on(
@@ -4603,7 +4615,7 @@ class IPCHandlers {
     );
 
     ipcMain.handle("get-corti-client-id", async () => {
-      return this.environmentManager.getCortiClientId();
+      return this.environmentManager.getRawKey("CORTI_CLIENT_ID");
     });
 
     ipcMain.handle("save-corti-client-id", async (event, key) => {
@@ -4611,7 +4623,7 @@ class IPCHandlers {
     });
 
     ipcMain.handle("get-corti-client-secret", async () => {
-      return this.environmentManager.getCortiClientSecret();
+      return this.environmentManager.getRawKey("CORTI_CLIENT_SECRET");
     });
 
     ipcMain.handle("save-corti-client-secret", async (event, key) => {
@@ -4675,7 +4687,7 @@ class IPCHandlers {
     );
 
     ipcMain.handle("get-custom-transcription-key", async () => {
-      return this.environmentManager.getCustomTranscriptionKey();
+      return this.environmentManager.getRawKey("CUSTOM_TRANSCRIPTION_API_KEY");
     });
 
     ipcMain.handle("save-custom-transcription-key", async (event, key) => {
@@ -4683,7 +4695,7 @@ class IPCHandlers {
     });
 
     ipcMain.handle("get-cleanup-custom-key", async () => {
-      return this.environmentManager.getCleanupCustomKey();
+      return this.environmentManager.getRawCleanupCustomKey();
     });
 
     ipcMain.handle("save-cleanup-custom-key", async (event, key) => {
@@ -4704,19 +4716,19 @@ class IPCHandlers {
       return this.environmentManager.saveBedrockProfile(value);
     });
     ipcMain.handle("get-bedrock-access-key-id", async () => {
-      return this.environmentManager.getBedrockAccessKeyId();
+      return this.environmentManager.getRawKey("BEDROCK_ACCESS_KEY_ID");
     });
     ipcMain.handle("save-bedrock-access-key-id", async (event, key) => {
       return this.environmentManager.saveBedrockAccessKeyId(key);
     });
     ipcMain.handle("get-bedrock-secret-access-key", async () => {
-      return this.environmentManager.getBedrockSecretAccessKey();
+      return this.environmentManager.getRawKey("BEDROCK_SECRET_ACCESS_KEY");
     });
     ipcMain.handle("save-bedrock-secret-access-key", async (event, key) => {
       return this.environmentManager.saveBedrockSecretAccessKey(key);
     });
     ipcMain.handle("get-bedrock-session-token", async () => {
-      return this.environmentManager.getBedrockSessionToken();
+      return this.environmentManager.getRawKey("BEDROCK_SESSION_TOKEN");
     });
     ipcMain.handle("save-bedrock-session-token", async (event, key) => {
       return this.environmentManager.saveBedrockSessionToken(key);
@@ -4728,7 +4740,7 @@ class IPCHandlers {
       return this.environmentManager.saveAzureEndpoint(value);
     });
     ipcMain.handle("get-azure-api-key", async () => {
-      return this.environmentManager.getAzureApiKey();
+      return this.environmentManager.getRawKey("AZURE_OPENAI_API_KEY");
     });
     ipcMain.handle("save-azure-api-key", async (event, key) => {
       return this.environmentManager.saveAzureApiKey(key);
@@ -4758,7 +4770,7 @@ class IPCHandlers {
       return this.environmentManager.saveVertexLocation(value);
     });
     ipcMain.handle("get-vertex-api-key", async () => {
-      return this.environmentManager.getVertexApiKey();
+      return this.environmentManager.getRawKey("VERTEX_API_KEY");
     });
     ipcMain.handle("save-vertex-api-key", async (event, key) => {
       return this.environmentManager.saveVertexApiKey(key);
@@ -5135,6 +5147,22 @@ class IPCHandlers {
 
     ipcMain.handle("save-activation-mode", async (event, mode) => {
       return this.environmentManager.saveActivationMode(mode);
+    });
+
+    ipcMain.handle("get-whisper-idle-timeout", async () => {
+      return this.environmentManager.getWhisperIdleTimeoutMs();
+    });
+
+    ipcMain.handle("save-whisper-idle-timeout", async (event, ms) => {
+      return this.environmentManager.saveWhisperIdleTimeoutMs(ms);
+    });
+
+    ipcMain.handle("get-parakeet-idle-timeout", async () => {
+      return this.environmentManager.getParakeetIdleTimeoutMs();
+    });
+
+    ipcMain.handle("save-parakeet-idle-timeout", async (event, ms) => {
+      return this.environmentManager.saveParakeetIdleTimeoutMs(ms);
     });
 
     ipcMain.handle("get-ui-language", async () => {
@@ -6067,12 +6095,10 @@ class IPCHandlers {
       logger: debugLogger,
     });
     const resolveEnterpriseRuntime = async (event, provider, model, config = {}) => {
-      const manual = {
-        provider,
-        model,
-        apiKey: config.apiKey || "",
-        enterprise: require("./enterpriseProviderErrors").pickEnterpriseConfig(config),
-      };
+      const { resolveManualEnterpriseRuntime } = require("./enterpriseProviderErrors");
+      const manual = resolveManualEnterpriseRuntime(config, provider, model, (value) =>
+        this.environmentManager.resolveSecretRef(value)
+      );
       const context = config.managedContext;
       if (!context) return manual;
       const authHeaders = await getAuthHeader(event);
@@ -6309,6 +6335,28 @@ class IPCHandlers {
         };
       }
     });
+
+    ipcMain.handle(
+      "proxy-batch-dictation",
+      async (event, endpoint, headers, formDataFieldsArray, audioBuffer, mimeType, fileName) => {
+        const formData = new FormData();
+        for (const [key, value] of formDataFieldsArray || []) {
+          formData.append(key, value);
+        }
+        formData.append("file", new Blob([audioBuffer], { type: mimeType }), fileName);
+
+        const response = await proxyFetch(endpoint, { method: "POST", headers, body: formData });
+        const responseText = await response.text();
+
+        return {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          contentType: response.headers.get("content-type") || "",
+          text: responseText,
+        };
+      }
+    );
 
     ipcMain.handle("retry-transcription", async (event, id, settings) => {
       const buffer = this.audioStorageManager.getAudioBuffer(id);
@@ -7372,31 +7420,8 @@ class IPCHandlers {
     let meetingSystemAudioTicker = null;
     let meetingSystemAudioWatchdogWin = null;
 
-    const meetingSystemAudioWatchdog = createMeetingSystemAudioWatchdog({
-      onResumed: () => {
-        const win = meetingSystemAudioWatchdogWin;
-        if (win && !win.isDestroyed()) {
-          win.webContents.send("meeting-system-audio-resumed");
-        }
-      },
-      onInterrupted: (payload) => {
-        // debugLogger.error flattens its arguments into one string, dropping
-        // both the meta and the scope, so the give-up event would vanish from a
-        // log filtered on "meeting", the one filter used to triage this bug.
-        if (payload.recovering) {
-          debugLogger.warn("Meeting system audio interrupted, restarting", payload, "meeting");
-        } else {
-          debugLogger.warn("Meeting system audio capture gave up", payload, "meeting");
-        }
-        const win = meetingSystemAudioWatchdogWin;
-        if (win && !win.isDestroyed()) {
-          win.webContents.send("meeting-system-audio-interrupted", payload);
-        }
-      },
-    });
     let meetingStartedAt = null;
     let meetingSendCounts = { mic: 0, system: 0 };
-    const meetingEchoLeakDetector = new MeetingEchoLeakDetector();
     let meetingReconnectPromise = null;
     let meetingFatalErrorSent = false;
     let meetingReconnectCount = 0;
@@ -8388,66 +8413,6 @@ class IPCHandlers {
     };
 
     // Pre-warm: fetch tokens + connect WebSockets before user hits record
-    ipcMain.handle("meeting-transcription-prepare", async (event, options = {}) => {
-      if (meetingTranscriptionPrepareInProgress || meetingTranscriptionStartInProgress) {
-        debugLogger.debug("Meeting transcription prepare already in progress, ignoring");
-        return { success: false, error: "Operation in progress" };
-      }
-
-      if (!ALLOWED_MEETING_PROVIDERS.has(options.provider)) {
-        return { success: false, error: `Unsupported provider: ${options.provider}` };
-      }
-
-      if (options.provider === "local") {
-        return { success: true };
-      }
-
-      const { mode: systemAudioMode } = await getMeetingSystemAudioPlan();
-      const requestedConnectionKey = getMeetingConnectionKey(options);
-
-      if (
-        isMeetingStreamingConnected(systemAudioMode) &&
-        meetingConnectionKey === requestedConnectionKey
-      ) {
-        debugLogger.debug("Meeting transcription already prepared (warm connections)");
-        return { success: true, alreadyPrepared: true };
-      }
-
-      meetingTranscriptionPrepareInProgress = true;
-      meetingTranscriptionPreparePromise = (async () => {
-        let timeoutHandle;
-        try {
-          await Promise.race([
-            connectRealtimeStreaming(event, options),
-            new Promise((_, reject) => {
-              timeoutHandle = setTimeout(() => reject(new Error("Prepare timed out")), 15000);
-            }),
-          ]);
-          debugLogger.debug("Meeting transcription prepared (meeting streams warm)");
-          return { success: true };
-        } catch (error) {
-          debugLogger.error("Meeting transcription prepare error", { error: error.message });
-          return toPolicyFailure(error);
-        } finally {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          meetingTranscriptionPrepareInProgress = false;
-          meetingTranscriptionPreparePromise = null;
-        }
-      })();
-
-      return meetingTranscriptionPreparePromise;
-    });
-
-    ipcMain.handle("meeting-transcription-cancel", async () => {
-      if (isMeetingStreamingConnected() || meetingLocalTimer) {
-        return { success: false, reason: "recording-active" };
-      }
-      meetingTranscriptionPrepareInProgress = false;
-      meetingTranscriptionStartInProgress = false;
-      meetingTranscriptionPreparePromise = null;
-      return { success: true };
-    });
-
     const startMeetingTranscription = async (event, options = {}) => {
       // Wait for any in-flight prepare to finish before starting
       if (meetingTranscriptionPreparePromise) {
@@ -8730,8 +8695,7 @@ class IPCHandlers {
 
     const startManagedMeetingSystemAudio = (event, manager, warningLabel, onWarningCode) => {
       const win = BrowserWindow.fromWebContents(event.sender);
-      const timeline =
-        manager === this.audioTapManager ? require("./meetingAudioTimeline")() : null;
+      const timeline = null;
       let captureStarted = false;
       const startCapture = () => {
         if (captureStarted) timeline?.markRestart();
@@ -8867,10 +8831,6 @@ class IPCHandlers {
       }
     };
 
-    ipcMain.on("meeting-transcription-send", (_event, audioBuffer, source) => {
-      sendMeetingAudio(audioBuffer, source);
-    });
-
     const stopMeetingTranscription = async (expectedSessionId) => {
       // Only a *different* live session blocks teardown — it owns the shared
       // capture now. With no engine session (e.g. after quit-path engine stop)
@@ -8966,47 +8926,6 @@ class IPCHandlers {
         return { success: false, error: error.message };
       }
     };
-
-    const meetingTranscriptionLifecycle = createMeetingTranscriptionLifecycle({
-      start: ({ sessionId, ownerWebContents, options }) =>
-        startMeetingTranscription({ sender: ownerWebContents }, { ...options, sessionId }),
-      stop: (sessionId) => stopMeetingTranscription(sessionId),
-      onError: (error, sessionId) => {
-        debugLogger.error(
-          "Meeting transcription owner-loss teardown failed",
-          { error: error?.message, sessionId },
-          "meeting"
-        );
-      },
-    });
-
-    ipcMain.handle("meeting-transcription-start", (event, options = {}) => {
-      const sessionId =
-        typeof options.sessionId === "string" && options.sessionId.length > 0
-          ? options.sessionId
-          : crypto.randomUUID();
-      return meetingTranscriptionLifecycle.startSession({
-        sessionId,
-        ownerWebContents: event.sender,
-        options,
-      });
-    });
-
-    ipcMain.handle("meeting-transcription-stop", (_event, expectedSessionId) =>
-      meetingTranscriptionLifecycle.stopSession(expectedSessionId)
-    );
-
-    ipcMain.handle(
-      "meeting-transcription-set-system-audio-available",
-      async (event, sessionId, available) => {
-        const updated = await this.meetingDetectionEngine?.setRecordingSystemAudioAvailable(
-          sessionId,
-          available === true,
-          event.sender
-        );
-        return updated === true ? { success: true } : { success: false, reason: "stale-session" };
-      }
-    );
 
     const streamingStartFailure = (err) => {
       const result = toPolicyFailure(err);
@@ -9829,7 +9748,7 @@ class IPCHandlers {
         event,
         {
           filePath,
-          apiKey,
+          apiKey: rawApiKey,
           baseUrl,
           model,
           diarize,
@@ -9845,8 +9764,12 @@ class IPCHandlers {
         }
       ) => {
         const fs = require("fs");
+        let apiKey = "";
         let cleanupUpload = null;
         try {
+          apiKey = require("./envRef.cjs").usableSecret(
+            this.environmentManager.resolveSecretRef(rawApiKey)
+          );
           if (typeof filePath !== "string") {
             return { success: false, error: "Invalid file path" };
           }
@@ -11205,166 +11128,8 @@ class IPCHandlers {
     });
 
     // Provider-neutral availability over the shared calendar cache.
-    ipcMain.handle("calendar-get-availability", async (_event, request) => {
-      try {
-        return {
-          success: true,
-          availability: getCalendarAvailability({
-            request,
-            databaseManager: this.databaseManager,
-            calendarProviders: [
-              { provider: "google", manager: this.googleCalendarManager },
-              { provider: "microsoft", manager: this.microsoftCalendarManager },
-              { provider: "apple", manager: this.appleCalendarManager },
-            ],
-          }),
-        };
-      } catch (error) {
-        debugLogger.warn(
-          "Calendar availability request failed",
-          { error: error instanceof Error ? error.message : String(error) },
-          "calendar"
-        );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Failed to check calendar availability",
-        };
-      }
-    });
-
     // Google Calendar
-    ipcMain.handle("gcal-start-oauth", async () => {
-      try {
-        return await this.googleCalendarManager.startOAuth();
-      } catch (error) {
-        debugLogger.error("Google Calendar OAuth failed", { error: error.message }, "calendar");
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("gcal-disconnect", async (_event, email) => {
-      try {
-        this.googleCalendarManager.disconnect(email);
-        return { success: true };
-      } catch (error) {
-        debugLogger.error(
-          "Google Calendar disconnect failed",
-          { error: error.message },
-          "calendar"
-        );
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("gcal-get-connection-status", async () => {
-      try {
-        return this.googleCalendarManager.getConnectionStatus();
-      } catch (error) {
-        return { connected: false, email: null };
-      }
-    });
-
-    ipcMain.handle("gcal-get-calendars", async () => {
-      try {
-        return { success: true, calendars: this.googleCalendarManager.getCalendars() };
-      } catch (error) {
-        return { success: false, calendars: [] };
-      }
-    });
-
-    ipcMain.handle("gcal-set-calendar-selection", async (_event, calendarId, isSelected) => {
-      try {
-        await this.googleCalendarManager.setCalendarSelection(calendarId, isSelected);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("gcal-set-primary-only", async (_event, value) => {
-      try {
-        await this.googleCalendarManager.setPrimaryOnly(value);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("gcal-sync-events", async () => {
-      try {
-        await this.googleCalendarManager.syncEvents();
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("gcal-get-upcoming-events", async (_event, windowMinutes) => {
-      try {
-        return {
-          success: true,
-          events: await this.googleCalendarManager.getUpcomingEvents(windowMinutes),
-        };
-      } catch (error) {
-        return { success: false, events: [] };
-      }
-    });
-
-    ipcMain.handle("gcal-get-event", async (_event, eventId) => {
-      try {
-        const event = this.databaseManager.getCalendarEventById(eventId);
-        return { success: true, event };
-      } catch (error) {
-        return { success: false, event: null };
-      }
-    });
-
     // Microsoft Calendar
-    ipcMain.handle("mcal-start-oauth", async () => {
-      try {
-        return await this.microsoftCalendarManager.startOAuth();
-      } catch (error) {
-        debugLogger.error("Microsoft Calendar OAuth failed", { error: error.message }, "calendar");
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("mcal-disconnect", async (_event, email) => {
-      try {
-        this.microsoftCalendarManager.disconnect(email);
-        return { success: true };
-      } catch (error) {
-        debugLogger.error(
-          "Microsoft Calendar disconnect failed",
-          { error: error.message },
-          "calendar"
-        );
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("mcal-get-connection-status", async () => {
-      try {
-        return this.microsoftCalendarManager.getConnectionStatus();
-      } catch (error) {
-        debugLogger.error(
-          "Microsoft Calendar connection status failed",
-          { error: error.message },
-          "calendar"
-        );
-        return { connected: false, accounts: [] };
-      }
-    });
-
-    ipcMain.handle("mcal-set-primary-only", async (_event, value) => {
-      try {
-        await this.microsoftCalendarManager.setPrimaryOnly(value);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
     // Apple Calendar (macOS EventKit)
     ipcMain.handle("acal-connect", async () => {
       try {
@@ -11419,59 +11184,11 @@ class IPCHandlers {
       return crypto.createHash("md5").update(text.toLowerCase().trim()).digest("hex");
     });
 
-    ipcMain.handle("meeting-detection-get-preferences", async () => {
-      try {
-        return { success: true, preferences: this.meetingDetectionEngine.getPreferences() };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("meeting-detection-set-preferences", async (_event, prefs) => {
-      try {
-        this.meetingDetectionEngine.setPreferences(prefs);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
     const NOTIFICATION_PREF_KEYS = new Set([
       "notificationsEnabled",
       "notifyMeetingDetection",
       "notifyCalendarReminders",
     ]);
-
-    ipcMain.handle("sync-notification-preferences", async (_event, prefs) => {
-      try {
-        if (!prefs || typeof prefs !== "object") {
-          return { success: false, error: "Invalid preferences" };
-        }
-        for (const [k, v] of Object.entries(prefs)) {
-          if (NOTIFICATION_PREF_KEYS.has(k)) {
-            this.windowManager.notificationPrefs[k] = !!v;
-          }
-        }
-        // Detection only serves the notification, so the toggle also gates the detector.
-        const { notificationsEnabled, notifyMeetingDetection } =
-          this.windowManager.notificationPrefs;
-        this.meetingDetectionEngine?.setPreferences({
-          audioDetection: notificationsEnabled && notifyMeetingDetection,
-        });
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("meeting-set-speaker-diarization-enabled", async (_event, payload) => {
-      try {
-        this.speakerDiarizationEnabled = payload?.enabled !== false;
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
 
     ipcMain.handle("whisper-vad-get-config", async () => {
       try {
@@ -11490,67 +11207,8 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("meeting-set-session-speaker-config", async (_event, payload) => {
-      try {
-        const enabled = payload?.enabled !== false;
-        const expectedCount = Math.max(
-          1,
-          Math.min(
-            MAX_SPEAKER_COUNT,
-            Number(payload?.expectedCount) || DEFAULT_EXPECTED_SPEAKER_COUNT
-          )
-        );
-        // Only a stepper-set count is explicit; the diarization toggle reuses this
-        // channel and must not freeze the count against roster-driven refreshes.
-        this.activeMeetingSpeakerConfig = {
-          enabled,
-          expectedCount,
-          explicit: payload?.countIsExplicit === true,
-        };
-        liveSpeakerIdentifier.setEnabled(enabled);
-        // Live identification only labels other speakers (the mic track is "you"),
-        // so cap at expectedCount - 1 to match resolveSessionMaxSpeakers().
-        liveSpeakerIdentifier.setMaxSpeakers(Math.max(1, expectedCount - 1));
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("meeting-notification-respond", async (_event, detectionId, action) => {
-      try {
-        await this.meetingDetectionEngine.handleNotificationResponse(detectionId, action);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("join-calendar-meeting", async (_event, eventId) => {
-      try {
-        await this.meetingDetectionEngine.joinCalendarMeeting(eventId);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("start-manual-meeting", () => this.windowManager.startManualMeeting());
-
-    ipcMain.handle("get-meeting-notification-data", async () => {
-      return this.windowManager?._pendingNotificationData ?? null;
-    });
-
-    ipcMain.handle("get-pending-meeting-note-navigation", async () => {
-      return this.windowManager?.consumePendingMeetingNoteNavigation() ?? null;
-    });
-
     ipcMain.handle("get-pending-note-navigation", async () => {
       return this.windowManager?.consumePendingNoteNavigation() ?? null;
-    });
-
-    ipcMain.handle("meeting-notification-ready", async (event) => {
-      this.windowManager?.showNotificationWindow(event.sender);
     });
 
     // Note files (markdown mirror) handlers

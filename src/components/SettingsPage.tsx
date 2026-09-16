@@ -94,7 +94,7 @@ import ChatAgentSettings from "./settings/ChatAgentSettings";
 import DictationAgentSettings from "./settings/DictationAgentSettings";
 import DictationTranslationSettings from "./settings/DictationTranslationSettings";
 import InferenceConfigEditor from "./settings/InferenceConfigEditor";
-import { MeetingTranscriptionPanel } from "./settings/MeetingSettings";
+
 import { UploadTranscriptionPanel } from "./settings/UploadSettings";
 import LanguageSelector from "./ui/LanguageSelector";
 import { Skeleton } from "./ui/skeleton";
@@ -127,8 +127,10 @@ import { formatBytes } from "../utils/formatBytes";
 import {
   clearMissingLocalModelSelections,
   TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
+  PARAKEET_IDLE_TIMEOUT_CHOICES,
   TRANSCRIPTION_POLICY_PROVIDER_IDS,
   useSettingsStore,
+  WHISPER_IDLE_TIMEOUT_CHOICES,
 } from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { highestPlan } from "../lib/usageStore";
@@ -1213,10 +1215,6 @@ export default function SettingsPage({
     setCloudTranscriptionBaseUrl,
     setUseCleanupModel,
     setDictationKey,
-    meetingKey,
-    setMeetingKey,
-    meetingHotkeyLayoutMode,
-    setMeetingHotkeyLayoutMode,
     autoLearnCorrections,
     setAutoLearnCorrections,
     updateTranscriptionSettings,
@@ -1231,10 +1229,7 @@ export default function SettingsPage({
     setRemoteTranscriptionModel,
     notificationsEnabled,
     setNotificationsEnabled,
-    notifyMeetingDetection,
-    setNotifyMeetingDetection,
-    notifyCalendarReminders,
-    setNotifyCalendarReminders,
+
     autoUpdatesEnabled,
     setAutoUpdatesEnabled,
     audioCuesEnabled,
@@ -1245,6 +1240,8 @@ export default function SettingsPage({
     setShowTranscriptionPreview,
     autoPasteEnabled,
     setAutoPasteEnabled,
+    pressEnterAfterPaste,
+    setPressEnterAfterPaste,
     keepTranscriptionInClipboard,
     setKeepTranscriptionInClipboard,
     floatingIconAutoHide,
@@ -1275,8 +1272,7 @@ export default function SettingsPage({
     setDictationSileroEnabled,
     noteRecordingSileroEnabled,
     setNoteRecordingSileroEnabled,
-    meetingSileroEnabled,
-    setMeetingSileroEnabled,
+
     whisperVadThreshold,
     setWhisperVadThreshold,
     whisperVadMinSpeechDurationMs,
@@ -1289,6 +1285,10 @@ export default function SettingsPage({
     setWhisperVadSpeechPadMs,
     whisperVadSamplesOverlap,
     setWhisperVadSamplesOverlap,
+    whisperIdleTimeoutMs,
+    setWhisperIdleTimeoutMs,
+    parakeetIdleTimeoutMs,
+    setParakeetIdleTimeoutMs,
   } = useSettings();
 
   const voiceAgentKey = useSettingsStore((s) => s.voiceAgentKey);
@@ -1479,25 +1479,6 @@ export default function SettingsPage({
     showAlert: showAlertDialog,
   });
 
-  const meetingRegisterFn = useCallback(async (hotkey: string) => {
-    const result = await window.electronAPI?.registerMeetingHotkey?.(hotkey);
-    // No `message`: useHotkeyRegistration falls back to the translated
-    // hooks.hotkeyRegistration.errors.couldNotRegister, and that string is what
-    // gets shown in a toast. An English literal here would surface untranslated.
-    return result ?? { success: false };
-  }, []);
-
-  const { registerHotkey: registerMeetingHotkey, isRegistering: isMeetingHotkeyRegistering } =
-    useHotkeyRegistration({
-      onSuccess: (registeredHotkey) => {
-        setMeetingKey(registeredHotkey);
-      },
-      showSuccessToast: false,
-      showErrorToast: true,
-      showAlert: showAlertDialog,
-      registerFn: meetingRegisterFn,
-    });
-
   // Agent hotkey setters resolve to false when main-process registration fails;
   // surface it and return the result so HotkeyListInput rolls the row back.
   const [isAgentHotkeyCommitting, setIsAgentHotkeyCommitting] = useState(false);
@@ -1525,27 +1506,12 @@ export default function SettingsPage({
       validateHotkeyForSlot(
         hotkey,
         {
-          "settingsPage.general.meetingHotkey.title": meetingKey,
           "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
           "settingsPage.general.translationHotkey.title": translationKey,
         },
         t
       ),
-    [meetingKey, voiceAgentKey, translationKey, t]
-  );
-
-  const validateMeetingHotkey = useCallback(
-    (hotkey: string) =>
-      validateHotkeyForSlot(
-        hotkey,
-        {
-          "settingsPage.general.hotkey.title": dictationKey,
-          "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
-          "settingsPage.general.translationHotkey.title": translationKey,
-        },
-        t
-      ),
-    [dictationKey, voiceAgentKey, translationKey, t]
+    [voiceAgentKey, translationKey, t]
   );
 
   const validateVoiceAgentHotkey = useCallback(
@@ -1554,12 +1520,11 @@ export default function SettingsPage({
         hotkey,
         {
           "settingsPage.general.hotkey.title": dictationKey,
-          "settingsPage.general.meetingHotkey.title": meetingKey,
           "settingsPage.general.translationHotkey.title": translationKey,
         },
         t
       ),
-    [dictationKey, meetingKey, translationKey, t]
+    [dictationKey, translationKey, t]
   );
 
   const validateTranslationHotkey = useCallback(
@@ -1568,12 +1533,11 @@ export default function SettingsPage({
         hotkey,
         {
           "settingsPage.general.hotkey.title": dictationKey,
-          "settingsPage.general.meetingHotkey.title": meetingKey,
           "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
         },
         t
       ),
-    [dictationKey, meetingKey, voiceAgentKey, t]
+    [dictationKey, voiceAgentKey, t]
   );
 
   const {
@@ -1606,14 +1570,6 @@ export default function SettingsPage({
   useEffect(() => {
     readAutoStartState().finally(() => setAutoStartLoading(false));
   }, [readAutoStartState]);
-
-  useEffect(() => {
-    window.electronAPI?.syncNotificationPreferences?.({
-      notificationsEnabled,
-      notifyMeetingDetection,
-      notifyCalendarReminders,
-    });
-  }, [notificationsEnabled, notifyMeetingDetection, notifyCalendarReminders]);
 
   const handleAutoStartChange = async (enabled: boolean) => {
     if (!window.electronAPI?.setAutoStartEnabled) return;
@@ -2068,14 +2024,7 @@ export default function SettingsPage({
             <Toggle checked={noteRecordingSileroEnabled} onChange={setNoteRecordingSileroEnabled} />
           </SettingsRow>
         </SettingsPanelRow>
-        <SettingsPanelRow>
-          <SettingsRow
-            label={t("settingsPage.transcription.vad.toggles.meeting.title")}
-            description={t("settingsPage.transcription.vad.toggles.meeting.description")}
-          >
-            <Toggle checked={meetingSileroEnabled} onChange={setMeetingSileroEnabled} />
-          </SettingsRow>
-        </SettingsPanelRow>
+
         <SettingsPanelRow>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
             <div className="space-y-1.5">
@@ -2169,6 +2118,68 @@ export default function SettingsPage({
               />
             </div>
           </div>
+        </SettingsPanelRow>
+      </SettingsPanel>
+    </div>
+  );
+
+  const renderWhisperIdleTimeoutSettings = () => (
+    <div>
+      <SectionHeader
+        title={t("settingsPage.transcription.idleUnload.title")}
+        description={t("settingsPage.transcription.idleUnload.description")}
+      />
+      <SettingsPanel>
+        <SettingsPanelRow>
+          <SettingsRow label={t("settingsPage.transcription.idleUnload.label")}>
+            <Select
+              value={String(whisperIdleTimeoutMs)}
+              onValueChange={(value) => setWhisperIdleTimeoutMs(Number(value))}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Derived from the store's whitelist so a new option can't silently
+                    snap to 0 in the setter; its label key is the value itself. */}
+                {WHISPER_IDLE_TIMEOUT_CHOICES.map((ms) => (
+                  <SelectItem key={ms} value={String(ms)}>
+                    {t(`settingsPage.transcription.idleUnload.options.${ms}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+        </SettingsPanelRow>
+      </SettingsPanel>
+    </div>
+  );
+
+  const renderParakeetIdleTimeoutSettings = () => (
+    <div>
+      <SectionHeader
+        title={t("settingsPage.transcription.idleUnloadParakeet.title")}
+        description={t("settingsPage.transcription.idleUnloadParakeet.description")}
+      />
+      <SettingsPanel>
+        <SettingsPanelRow>
+          <SettingsRow label={t("settingsPage.transcription.idleUnloadParakeet.label")}>
+            <Select
+              value={String(parakeetIdleTimeoutMs)}
+              onValueChange={(value) => setParakeetIdleTimeoutMs(Number(value))}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PARAKEET_IDLE_TIMEOUT_CHOICES.map((ms) => (
+                  <SelectItem key={ms} value={String(ms)}>
+                    {t(`settingsPage.transcription.idleUnloadParakeet.options.${ms}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
     </div>
@@ -3136,34 +3147,6 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.notifications.meetingDetection")}
-                    description={t(
-                      "settingsPage.general.notifications.meetingDetectionDescription"
-                    )}
-                  >
-                    <Toggle
-                      checked={notifyMeetingDetection}
-                      onChange={setNotifyMeetingDetection}
-                      disabled={!notificationsEnabled}
-                    />
-                  </SettingsRow>
-                </SettingsPanelRow>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.notifications.calendarReminders")}
-                    description={t(
-                      "settingsPage.general.notifications.calendarRemindersDescription"
-                    )}
-                  >
-                    <Toggle
-                      checked={notifyCalendarReminders}
-                      onChange={setNotifyCalendarReminders}
-                      disabled={!notificationsEnabled}
-                    />
-                  </SettingsRow>
-                </SettingsPanelRow>
               </SettingsPanel>
             </div>
 
@@ -3177,6 +3160,20 @@ export default function SettingsPage({
                     description={t("settingsPage.general.clipboard.autoPasteDescription")}
                   >
                     <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow>
+                  <SettingsRow
+                    label={t("settingsPage.general.clipboard.pressEnterAfterPaste")}
+                    description={t(
+                      "settingsPage.general.clipboard.pressEnterAfterPasteDescription"
+                    )}
+                  >
+                    <Toggle
+                      checked={pressEnterAfterPaste}
+                      onChange={setPressEnterAfterPaste}
+                      disabled={!autoPasteEnabled}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>
@@ -4083,58 +4080,6 @@ EOF`,
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>
-
-            {/* Meeting Mode Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.meetingHotkey.title")}
-                description={t("settingsPage.general.meetingHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={meetingKey}
-                    onChange={(list) => registerMeetingHotkey(list)}
-                    onClear={async () => {
-                      await window.electronAPI?.registerMeetingHotkey?.("");
-                      setMeetingKey("");
-                    }}
-                    validate={validateMeetingHotkey}
-                    disabled={isMeetingHotkeyRegistering}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-                <SettingsPanelRow className="flex items-center justify-between gap-3 border-t border-border/70 dark:border-white/10">
-                  <span className="text-xs text-muted-foreground/80">
-                    {t("settingsPage.general.meetingHotkey.layoutLabel")}
-                  </span>
-                  <Select
-                    value={meetingHotkeyLayoutMode}
-                    onValueChange={(value) =>
-                      setMeetingHotkeyLayoutMode(value as "side-panel" | "full-width")
-                    }
-                  >
-                    <SelectTrigger className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem
-                        value="full-width"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutFullWidth")}
-                      </SelectItem>
-                      <SelectItem
-                        value="side-panel"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutSidePanel")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
           </div>
         );
 
@@ -4954,14 +4899,25 @@ EOF`,
                 {transcriptionMode === "local" &&
                   localTranscriptionProvider === "whisper" &&
                   renderWhisperVadSettings()}
+                {transcriptionMode === "local" &&
+                  localTranscriptionProvider !== "nvidia" &&
+                  renderWhisperIdleTimeoutSettings()}
+                {transcriptionMode === "local" &&
+                  localTranscriptionProvider === "nvidia" &&
+                  renderParakeetIdleTimeoutSettings()}
               </div>
             )}
             renderNoteRecording={() => (
               <div className="space-y-6">
-                <MeetingTranscriptionPanel />
                 {transcriptionMode === "local" &&
                   localTranscriptionProvider === "whisper" &&
                   renderWhisperVadSettings()}
+                {transcriptionMode === "local" &&
+                  localTranscriptionProvider !== "nvidia" &&
+                  renderWhisperIdleTimeoutSettings()}
+                {transcriptionMode === "local" &&
+                  localTranscriptionProvider === "nvidia" &&
+                  renderParakeetIdleTimeoutSettings()}
               </div>
             )}
             renderUpload={() => (

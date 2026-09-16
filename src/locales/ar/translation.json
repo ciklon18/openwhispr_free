@@ -358,7 +358,7 @@
       "ollama": "(Ollama)",
       "localAi": "(LocalAI)",
       "apiKeyOptional": "مفتاح API (اختياري)",
-      "apiKeyHelp": "اختياري. يتم إرساله كرمز Bearer للمصادقة. هذا منفصل عن مفتاح OpenAI API الخاص بك.",
+      "apiKeyHelp": "اختياري. اتركه فارغًا لاستخدام متغير البيئة المطابق، أو أدخل $OPENAI_API_KEY لإعادة استخدام اسم سر آخر في OpenWhispr. الأسماء العشوائية مثل $MY_COMPANY_KEY لا تُوسَّع. تُستورد صادرات الـ shell (مثل ~/.zshrc) عند التشغيل.",
       "applyAndRefresh": "تطبيق وتحديث",
       "queryPrefix": "سنستعلم من",
       "querySuffix": "عن النماذج المتاحة.",
@@ -2990,7 +2990,9 @@
         "autoPaste": "لصق تلقائي",
         "autoPasteDescription": "لصق النص المفرَّغ تلقائيًا في التطبيق النشط عند انتهاء الإملاء",
         "keepInClipboard": "الاحتفاظ بالنص المفرَّغ في الحافظة",
-        "keepInClipboardDescription": "احتفظ بالنص المُملى في الحافظة حتى تتمكن من لصقه يدويًا إذا لزم الأمر"
+        "keepInClipboardDescription": "احتفظ بالنص المُملى في الحافظة حتى تتمكن من لصقه يدويًا إذا لزم الأمر",
+        "pressEnterAfterPaste": "Press Enter after paste",
+        "pressEnterAfterPasteDescription": "Send Enter once text has been pasted, to submit it. Take care in terminals and command palettes, where Enter runs commands immediately."
       },
       "startup": {
         "launchAtLogin": "بدء التشغيل عند تسجيل الدخول",
@@ -3355,7 +3357,31 @@
           }
         }
       },
-      "meetingEnterpriseOnly": "لا تسمح مؤسستك إلا بالتفريغ عبر السحابة المؤسسية، وهو لا يشمل تسجيل الاجتماعات بعد."
+      "meetingEnterpriseOnly": "لا تسمح مؤسستك إلا بالتفريغ عبر السحابة المؤسسية، وهو لا يشمل تسجيل الاجتماعات بعد.",
+      "idleUnload": {
+        "title": "Idle Unload",
+        "description": "Automatically stop the local Whisper server after a period of inactivity to free up RAM and VRAM",
+        "label": "Unload after",
+        "options": {
+          "0": "Never",
+          "300000": "5 minutes",
+          "900000": "15 minutes",
+          "1800000": "30 minutes",
+          "3600000": "60 minutes"
+        }
+      },
+      "idleUnloadParakeet": {
+        "title": "Idle Unload",
+        "description": "Automatically stop the local Parakeet server after a period of inactivity to free up RAM and VRAM",
+        "label": "Unload after",
+        "options": {
+          "0": "Never",
+          "300000": "5 minutes",
+          "900000": "15 minutes",
+          "1800000": "30 minutes",
+          "3600000": "60 minutes"
+        }
+      }
     },
     "intelligence": {
       "gpuDevice": {
@@ -3656,7 +3682,8 @@
     "tinfoil": {
       "transportNote": "يستخدم Tinfoil نموذج Voxtral Mini 4B للتفريغ المباشر (البث)، ونموذج Voxtral Small 24B للمعالجة الدفعية.",
       "docsLink": "قراءة الوثائق"
-    }
+    },
+    "apiKeyEnvHelp": "اختياري. اتركه فارغًا لاستخدام CUSTOM_TRANSCRIPTION_API_KEY، أو أدخل $OPENAI_API_KEY لإعادة استخدام مفتاح آخر. تُستورد صادرات الـ shell (مثل ~/.zshrc) عند التشغيل."
   },
   "cleanupPrompt": "التنظيف",
   "dictionarySuffix": "لاحقة القاموس",
@@ -4092,14 +4119,16 @@
     "remindLater": "ذكرني لاحقًا"
   },
   "apiKeyInput": {
-    "placeholder": "الصق مفتاح API الخاص بك",
+    "placeholder": "الصق مفتاح API أو $ENV_VAR",
     "label": "مفتاح API",
     "save": "حفظ مفتاح API",
     "cancelEdit": "إلغاء التعديل",
     "edit": "تعديل مفتاح API",
     "add": "إضافة مفتاح API",
     "editButton": "تعديل",
-    "addButton": "إضافة"
+    "addButton": "إضافة",
+    "selfReference": "استخدم اسم متغير مختلف هنا، أو اترك هذا الحقل فارغًا.",
+    "unknownRef": "يمكن الإشارة فقط إلى أسماء أسرار OpenWhispr (مثل $OPENAI_API_KEY)."
   },
   "gpu": {
     "transcriptionBanner": "اجعل التفريغ الصوتي أسرع باستخدام تسريع GPU",

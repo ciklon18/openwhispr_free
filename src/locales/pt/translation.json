@@ -702,7 +702,7 @@
       "ollama": "(Ollama)",
       "localAi": "(LocalAI)",
       "apiKeyOptional": "Chave API (opcional)",
-      "apiKeyHelp": "Opcional. Enviada como token Bearer para autenticação. Separada da sua chave API da OpenAI.",
+      "apiKeyHelp": "Opcional. Deixe em branco para usar a variável de ambiente, ou digite $OPENAI_API_KEY. Exports do shell (ex.: ~/.zshrc) são lidos na inicialização.",
       "applyAndRefresh": "Aplicar e atualizar",
       "queryPrefix": "Vamos consultar",
       "querySuffix": "para modelos disponíveis.",
@@ -842,7 +842,8 @@
     "tinfoil": {
       "transportNote": "O Tinfoil transmite com o Voxtral Mini 4B e processa em lote com o Voxtral Small 24B.",
       "docsLink": "Ver a documentação"
-    }
+    },
+    "apiKeyEnvHelp": "Opcional. Deixe em branco para CUSTOM_TRANSCRIPTION_API_KEY, ou digite $OPENAI_API_KEY. Exports do shell (ex.: ~/.zshrc) são lidos na inicialização."
   },
   "hooks": {
     "audioRecording": {
@@ -1908,6 +1909,8 @@
         "title": "Área de transferência",
         "autoPaste": "Colagem automática",
         "autoPasteDescription": "Colar automaticamente o texto transcrito no aplicativo ativo ao finalizar o ditado",
+        "pressEnterAfterPaste": "Pressionar Enter após colar",
+        "pressEnterAfterPasteDescription": "Enviar Enter depois de o texto ser colado, para submetê-lo. Tenha cuidado em terminais e paletas de comandos, onde Enter executa comandos imediatamente.",
         "keepInClipboard": "Manter transcrição na área de transferência",
         "keepInClipboardDescription": "Manter o texto ditado na área de transferência para poder colar manualmente se necessário"
       },
@@ -2252,7 +2255,31 @@
           }
         }
       },
-      "meetingEnterpriseOnly": "A sua organização só permite transcrição em nuvem corporativa, que ainda não abrange a gravação de reuniões."
+      "meetingEnterpriseOnly": "A sua organização só permite transcrição em nuvem corporativa, que ainda não abrange a gravação de reuniões.",
+      "idleUnload": {
+        "title": "Desligamento por inatividade",
+        "description": "Desliga automaticamente o servidor Whisper local após um período de inatividade para liberar RAM e VRAM",
+        "label": "Desligar após",
+        "options": {
+          "0": "Nunca",
+          "300000": "5 minutos",
+          "900000": "15 minutos",
+          "1800000": "30 minutos",
+          "3600000": "60 minutos"
+        }
+      },
+      "idleUnloadParakeet": {
+        "title": "Desligamento por inatividade",
+        "description": "Desliga automaticamente o servidor Parakeet local após um período de inatividade para liberar RAM e VRAM",
+        "label": "Desligar após",
+        "options": {
+          "0": "Nunca",
+          "300000": "5 minutos",
+          "900000": "15 minutos",
+          "1800000": "30 minutos",
+          "3600000": "60 minutos"
+        }
+      }
     },
     "intelligence": {
       "gpuDevice": {
@@ -3491,14 +3518,16 @@
     "remindLater": "Lembrar-me mais tarde"
   },
   "apiKeyInput": {
-    "placeholder": "Cole sua chave API",
+    "placeholder": "Cole a chave API ou $ENV_VAR",
     "label": "Chave API",
     "save": "Salvar",
     "cancelEdit": "Cancelar edição",
     "edit": "Editar",
     "add": "Adicionar",
     "editButton": "Editar",
-    "addButton": "Adicionar"
+    "addButton": "Adicionar",
+    "selfReference": "Use a different variable name here, or leave this field empty.",
+    "unknownRef": "Only OpenWhispr secret names can be referenced (for example $OPENAI_API_KEY)."
   },
   "gpu": {
     "transcriptionBanner": "Acelere a transcrição com GPU",

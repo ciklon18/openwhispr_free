@@ -29,6 +29,8 @@ const HEALTH_CHECK_TIMEOUT_MS = 2000;
 const PROCESS_EXIT_WAIT_MS = 2000;
 const PROCESS_EXIT_POLL_INTERVAL_MS = 50;
 const DEFAULT_WHISPER_THREADS = 4;
+// 0 = never unload; opt-in only, so existing always-on behavior is unchanged by default.
+const DEFAULT_WHISPER_IDLE_TIMEOUT_MS = 0;
 const MAX_AUTO_WHISPER_THREADS = 12;
 const MAX_MANUAL_WHISPER_THREADS = 64;
 const AUTO_THREAD_RATIO = 0.75;
@@ -118,6 +120,21 @@ function shouldFallbackToDefaultThreads(resolution) {
 
 function getThreadSignature(resolution) {
   return `threads:${resolution.threads || "default"}`;
+}
+
+function shouldSkipRestart({
+  ready,
+  isRemote,
+  modelPathMatches,
+  vadSignatureMatches,
+  threadSignatureMatches,
+}) {
+  return ready && !isRemote && modelPathMatches && vadSignatureMatches && threadSignatureMatches;
+}
+
+function resolveWhisperIdleTimeoutMs(env = process.env) {
+  const parsed = parsePositiveInteger(env.WHISPER_IDLE_TIMEOUT_MS);
+  return parsed || DEFAULT_WHISPER_IDLE_TIMEOUT_MS;
 }
 
 function isVadActive(options = {}) {
@@ -305,6 +322,8 @@ class WhisperServerManager extends EventEmitter {
     this.gpuSignature = "gpu:cpu";
     this.gpuFallbackActive = false;
     this.lastStartOptions = {};
+    this.idleTimer = null;
+    this.stopPromise = null;
   }
 
   getFFmpegPath() {
@@ -518,11 +537,13 @@ class WhisperServerManager extends EventEmitter {
     // start mid-dictation. stop() clears the pin, so pack downloads, explicit
     // retries, and app restarts get a fresh GPU attempt.
     if (
-      this.ready &&
-      this.modelPath === modelPath &&
-      !this.isRemote &&
-      this.vadSignature === nextVadSignature &&
-      this.threadSignature === nextThreadSignature &&
+      shouldSkipRestart({
+        ready: this.ready,
+        isRemote: this.isRemote,
+        modelPathMatches: this.modelPath === modelPath,
+        vadSignatureMatches: this.vadSignature === nextVadSignature,
+        threadSignatureMatches: this.threadSignature === nextThreadSignature,
+      }) &&
       (this.gpuSignature === nextGpuSignature || this.gpuFallbackActive)
     ) {
       return;
@@ -750,6 +771,7 @@ class WhisperServerManager extends EventEmitter {
     }
 
     this.startHealthCheck();
+    this.resetIdleTimer();
 
     debugLogger.info("whisper-server started successfully", {
       port: this.port,
@@ -847,95 +869,124 @@ class WhisperServerManager extends EventEmitter {
     }
   }
 
+  resetIdleTimer() {
+    this.clearIdleTimer();
+    if (this.isRemote) return;
+
+    const timeoutMs = resolveWhisperIdleTimeoutMs();
+    if (!timeoutMs) return;
+
+    this.idleTimer = setTimeout(() => {
+      debugLogger.info("whisper-server idle timeout reached, stopping to free RAM/VRAM", {
+        timeoutMs,
+        model: this.modelPath ? path.basename(this.modelPath) : null,
+      });
+      this.stop();
+    }, timeoutMs);
+  }
+
+  clearIdleTimer() {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
   async transcribe(audioBuffer, options = {}) {
     if (!this.ready || (!this.process && !this.isRemote)) {
       throw new Error("whisper-server is not running");
     }
 
-    // Debug: Log audio buffer info
-    debugLogger.debug("whisper-server transcribe called", {
-      bufferLength: audioBuffer?.length || 0,
-      bufferType: audioBuffer?.constructor?.name,
-      firstBytes:
-        audioBuffer?.length >= 16
-          ? Array.from(audioBuffer.slice(0, 16))
-              .map((b) => b.toString(16).padStart(2, "0"))
-              .join(" ")
-          : "too short",
-    });
-
-    // signal is optional; only cancellable uploads pass one.
-    const { language, initialPrompt, signal, skipDecoderThresholds } = options;
-    if (signal?.aborted) throw createAbortError("whisper-server transcription cancelled");
-
-    // whisper.cpp wants 16 kHz mono PCM16; a renderer PCM tap delivers exactly that.
-    let finalBuffer = audioBuffer;
-    if (!isPcm16Mono16kWav(audioBuffer)) {
-      if (!this.canConvert) {
-        throw new Error("FFmpeg not found - required for audio conversion");
-      }
-      finalBuffer = await this._convertToWav(audioBuffer);
-    }
-
-    const boundary = `----WhisperBoundary${Date.now()}`;
-    const parts = [];
-    const fileName = "audio.wav";
-    const contentType = "audio/wav";
-
-    parts.push(
-      `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-        `Content-Type: ${contentType}\r\n\r\n`
-    );
-    parts.push(finalBuffer);
-    parts.push("\r\n");
-
-    parts.push(
-      `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="language"\r\n\r\n` +
-        `${language || "auto"}\r\n`
-    );
-
-    if (!skipDecoderThresholds) {
-      for (const [name, value] of Object.entries(INFERENCE_DECODER_FIELDS)) {
-        parts.push(
-          `--${boundary}\r\n` +
-            `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
-            `${value}\r\n`
-        );
-      }
-    }
-
-    // Add initial prompt for custom dictionary words
-    if (initialPrompt) {
-      parts.push(
-        `--${boundary}\r\n` +
-          `Content-Disposition: form-data; name="prompt"\r\n\r\n` +
-          `${initialPrompt}\r\n`
-      );
-      debugLogger.info("Using custom dictionary prompt", { prompt: initialPrompt });
-    }
-
-    parts.push(
-      `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
-        `json\r\n`
-    );
-    parts.push(`--${boundary}--\r\n`);
-
-    const bodyParts = parts.map((part) => (typeof part === "string" ? Buffer.from(part) : part));
-    const body = Buffer.concat(bodyParts);
-
-    const generation = this.startGeneration;
-    const modelPath = this.modelPath;
+    this.clearIdleTimer();
 
     try {
-      return await this._postInference(body, boundary, signal);
-    } catch (err) {
-      // A cancel is not a server failure: rethrow before the retry/CPU-fallback
-      // logic so it never triggers a server restart.
-      if (err?.name === "AbortError") throw err;
-      return await this._retryAfterRequestFailure(err, body, boundary, generation, modelPath);
+      // Debug: Log audio buffer info
+      debugLogger.debug("whisper-server transcribe called", {
+        bufferLength: audioBuffer?.length || 0,
+        bufferType: audioBuffer?.constructor?.name,
+        firstBytes:
+          audioBuffer?.length >= 16
+            ? Array.from(audioBuffer.slice(0, 16))
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join(" ")
+            : "too short",
+      });
+
+      // signal is optional; only cancellable uploads pass one.
+      const { language, initialPrompt, signal, skipDecoderThresholds } = options;
+      if (signal?.aborted) throw createAbortError("whisper-server transcription cancelled");
+
+      // whisper.cpp wants 16 kHz mono PCM16; a renderer PCM tap delivers exactly that.
+      let finalBuffer = audioBuffer;
+      if (!isPcm16Mono16kWav(audioBuffer)) {
+        if (!this.canConvert) {
+          throw new Error("FFmpeg not found - required for audio conversion");
+        }
+        finalBuffer = await this._convertToWav(audioBuffer);
+      }
+
+      const boundary = `----WhisperBoundary${Date.now()}`;
+      const parts = [];
+      const fileName = "audio.wav";
+      const contentType = "audio/wav";
+
+      parts.push(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
+          `Content-Type: ${contentType}\r\n\r\n`
+      );
+      parts.push(finalBuffer);
+      parts.push("\r\n");
+
+      parts.push(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="language"\r\n\r\n` +
+          `${language || "auto"}\r\n`
+      );
+
+      if (!skipDecoderThresholds) {
+        for (const [name, value] of Object.entries(INFERENCE_DECODER_FIELDS)) {
+          parts.push(
+            `--${boundary}\r\n` +
+              `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
+              `${value}\r\n`
+          );
+        }
+      }
+
+      // Add initial prompt for custom dictionary words
+      if (initialPrompt) {
+        parts.push(
+          `--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="prompt"\r\n\r\n` +
+            `${initialPrompt}\r\n`
+        );
+        debugLogger.info("Using custom dictionary prompt", { prompt: initialPrompt });
+      }
+
+      parts.push(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
+          `json\r\n`
+      );
+      parts.push(`--${boundary}--\r\n`);
+
+      const bodyParts = parts.map((part) => (typeof part === "string" ? Buffer.from(part) : part));
+      const body = Buffer.concat(bodyParts);
+
+      const generation = this.startGeneration;
+      const modelPath = this.modelPath;
+
+      try {
+        return await this._postInference(body, boundary, signal);
+      } catch (err) {
+        // A cancel is not a server failure: rethrow before the retry/CPU-fallback
+        // logic so it never triggers a server restart.
+        if (err?.name === "AbortError") throw err;
+        return await this._retryAfterRequestFailure(err, body, boundary, generation, modelPath);
+      }
+    } finally {
+      this.resetIdleTimer();
     }
   }
 
@@ -1121,23 +1172,33 @@ class WhisperServerManager extends EventEmitter {
   }
 
   async stop() {
+    if (this.stopPromise) return this.stopPromise;
+    this.stopPromise = this._doStop();
+    try {
+      await this.stopPromise;
+    } finally {
+      this.stopPromise = null;
+    }
+  }
+
+  async _doStop() {
     this._stopRequested = true;
+    this.clearIdleTimer();
     this.gpuFallbackActive = false;
     this.stopHealthCheck();
+    // Flip before the only await below — a start()/transcribe() call
+    // arriving mid-teardown must never see a server that still looks alive.
+    this.ready = false;
 
     if (this.isRemote) {
       debugLogger.debug("Disconnecting from remote whisper-server");
-      this.ready = false;
       this.isRemote = false;
       this.hostname = "127.0.0.1";
       this.port = null;
       return;
     }
 
-    if (!this.process) {
-      this.ready = false;
-      return;
-    }
+    if (!this.process) return;
 
     debugLogger.debug("Stopping whisper-server");
 
@@ -1167,7 +1228,6 @@ class WhisperServerManager extends EventEmitter {
     }
 
     this.process = null;
-    this.ready = false;
     this.port = null;
     this.modelPath = null;
   }
@@ -1187,6 +1247,7 @@ class WhisperServerManager extends EventEmitter {
       // infer this from "the GPU pack is downloaded" (see the CPU fallbacks)
       gpuBackend,
       gpuAccelerated: running && !this.isRemote && gpuBackend !== null,
+      idleTimeoutMs: this.isRemote ? 0 : resolveWhisperIdleTimeoutMs(),
     };
   }
 }
@@ -1199,5 +1260,7 @@ module.exports.resolveVulkanPinAction = resolveVulkanPinAction;
 module.exports.getVadSignature = getVadSignature;
 module.exports.getGpuSignature = getGpuSignature;
 module.exports.resolveWhisperThreads = resolveWhisperThreads;
+module.exports.resolveWhisperIdleTimeoutMs = resolveWhisperIdleTimeoutMs;
 module.exports.shouldFallbackToCpuAfterRequestError = shouldFallbackToCpuAfterRequestError;
 module.exports.shouldRetryAfterServerReplaced = shouldRetryAfterServerReplaced;
+module.exports.shouldSkipRestart = shouldSkipRestart;

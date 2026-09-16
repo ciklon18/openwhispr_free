@@ -723,7 +723,7 @@
       "ollama": "(Ollama)",
       "localAi": "(LocalAI)",
       "apiKeyOptional": "Clave API (opcional)",
-      "apiKeyHelp": "Opcional. Se envía como token Bearer para autenticación. Es independiente de tu clave API de OpenAI.",
+      "apiKeyHelp": "Opcional. Déjalo vacío para usar la variable de entorno, o escribe $OPENAI_API_KEY. Los exports del shell (p. ej. ~/.zshrc) se importan al iniciar.",
       "applyAndRefresh": "Aplicar y actualizar",
       "queryPrefix": "Consultaremos",
       "querySuffix": "para modelos disponibles.",
@@ -863,7 +863,8 @@
     "tinfoil": {
       "transportNote": "Tinfoil transmite con Voxtral Mini 4B y procesa por lotes con Voxtral Small 24B.",
       "docsLink": "Ver la documentación"
-    }
+    },
+    "apiKeyEnvHelp": "Opcional. Déjalo vacío para usar CUSTOM_TRANSCRIPTION_API_KEY, o escribe $OPENAI_API_KEY. Los exports del shell (p. ej. ~/.zshrc) se importan al iniciar."
   },
   "hooks": {
     "audioRecording": {
@@ -1982,6 +1983,8 @@
         "title": "Portapapeles",
         "autoPaste": "Pegado automático",
         "autoPasteDescription": "Pegar automáticamente el texto transcrito en la aplicación activa al finalizar el dictado",
+        "pressEnterAfterPaste": "Pulsar Intro después de pegar",
+        "pressEnterAfterPasteDescription": "Enviar Intro una vez pegado el texto, para enviarlo. Ten cuidado en terminales y paletas de comandos, donde Intro ejecuta los comandos de inmediato.",
         "keepInClipboard": "Mantener transcripción en el portapapeles",
         "keepInClipboardDescription": "Mantener el texto dictado en el portapapeles para poder pegarlo manualmente si es necesario"
       },
@@ -2326,7 +2329,31 @@
           }
         }
       },
-      "meetingEnterpriseOnly": "Tu organización solo permite la transcripción en nube empresarial, que aún no cubre la grabación de reuniones."
+      "meetingEnterpriseOnly": "Tu organización solo permite la transcripción en nube empresarial, que aún no cubre la grabación de reuniones.",
+      "idleUnload": {
+        "title": "Descarga por inactividad",
+        "description": "Detiene automáticamente el servidor local de Whisper tras un período de inactividad para liberar RAM y VRAM",
+        "label": "Descargar después de",
+        "options": {
+          "0": "Nunca",
+          "300000": "5 minutos",
+          "900000": "15 minutos",
+          "1800000": "30 minutos",
+          "3600000": "60 minutos"
+        }
+      },
+      "idleUnloadParakeet": {
+        "title": "Descarga por inactividad",
+        "description": "Detiene automáticamente el servidor local de Parakeet tras un período de inactividad para liberar RAM y VRAM",
+        "label": "Descargar después de",
+        "options": {
+          "0": "Nunca",
+          "300000": "5 minutos",
+          "900000": "15 minutos",
+          "1800000": "30 minutos",
+          "3600000": "60 minutos"
+        }
+      }
     },
     "intelligence": {
       "gpuDevice": {
@@ -3544,14 +3571,16 @@
     "remindLater": "Recordármelo más tarde"
   },
   "apiKeyInput": {
-    "placeholder": "Introduce tu clave API",
+    "placeholder": "Pega la API key o $ENV_VAR",
     "label": "Clave API",
     "save": "Guardar",
     "cancelEdit": "Cancelar edición",
     "edit": "Editar",
     "add": "Agregar",
     "editButton": "Editar",
-    "addButton": "Agregar"
+    "addButton": "Agregar",
+    "selfReference": "Use a different variable name here, or leave this field empty.",
+    "unknownRef": "Only OpenWhispr secret names can be referenced (for example $OPENAI_API_KEY)."
   },
   "gpu": {
     "transcriptionBanner": "Acelera la transcripción con GPU",

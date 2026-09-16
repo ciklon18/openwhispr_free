@@ -1,6 +1,5 @@
 export const USE_CASE_IDS = {
   dictation: "dictation",
-  meetings: "meetings",
   healthcare: "healthcare",
   translation: "translation",
   ai: "ai",
@@ -15,7 +14,6 @@ export interface UseCaseOption {
 
 export const USE_CASE_OPTIONS: UseCaseOption[] = [
   { id: USE_CASE_IDS.dictation },
-  { id: USE_CASE_IDS.meetings },
   { id: USE_CASE_IDS.healthcare },
   { id: USE_CASE_IDS.translation },
   { id: USE_CASE_IDS.upload },

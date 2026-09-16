@@ -62,25 +62,12 @@ class WindowManager {
     this.onOnboardingDemoTeardown = null;
     // Set by main.js so the tray's listen item rebuilds with dictation state.
     this.onDictationStateChanged = null;
-    this.notificationWindow = null;
+
     this.agentDictationPillWindow = null;
     this._agentDictationPillReady = false;
     this._agentDictationPillSize = AGENT_DICTATION_PILL_SIZE;
     this._agentDictationPillHorizontalDirection = "left";
     this._agentDictationPillScreenListener = null;
-    this._notificationDismissTimer = new NotificationDismissTimer(() => {
-      // Dismiss first: a prompt raised from the timeout handler must not be
-      // closed by this dismissal. The engine is not told the card closed either —
-      // handleNotificationTimeout below settles this expiry, and a close report
-      // here would flush the queue into a card that handler is about to clear.
-      this.dismissMeetingNotification({ notifyEngine: false });
-      this.meetingDetectionEngine?.handleNotificationTimeout();
-    });
-    this.notificationPrefs = {
-      notificationsEnabled: true,
-      notifyMeetingDetection: true,
-      notifyCalendarReminders: true,
-    };
     this.tray = null;
     this.hotkeyManager = new HotkeyManager();
     this.dragManager = new DragManager();
@@ -98,7 +85,6 @@ class WindowManager {
     this._dictationInputKind = DICTATION_INPUT_KIND.DICTATION;
     this._assistantPanelOpen = false;
     this._assistantPanelBusy = false;
-    this._pendingMeetingNoteNavigation = null;
     this._pendingNoteNavigation = null;
 
     app.on("before-quit", () => {
@@ -266,29 +252,6 @@ class WindowManager {
       // overwrite this fallback and leave native hover unreachable.
       if (!win.isDestroyed()) win.setIgnoreMouseEvents(false);
       throw error;
-    }
-  }
-
-  // Only the meeting prompt owns this: another overlay reporting its own hover
-  // must not pause a countdown it cannot resume — it may be destroyed before
-  // its pointer ever leaves.
-  setNotificationInteractivity(sender, interactive) {
-    const win = this.notificationWindow;
-    if (!win || win.isDestroyed() || sender !== win.webContents) {
-      return;
-    }
-    // Linux ignores the `forward` option, so a card returned to click-through
-    // there never sees another mouseenter and Start/Dismiss stay unreachable
-    // for the rest of its life (#1456). It is only click-through on macOS to
-    // begin with, so on Linux leave the hit-testing alone and move the
-    // countdown alone.
-    const togglesClickThrough = process.platform !== "linux";
-    if (interactive) {
-      if (togglesClickThrough) win.setIgnoreMouseEvents(false);
-      this._notificationDismissTimer.pause();
-    } else {
-      if (togglesClickThrough) win.setIgnoreMouseEvents(true, { forward: true });
-      this._notificationDismissTimer.resume();
     }
   }
 
@@ -851,23 +814,6 @@ class WindowManager {
     return isOnboardingInputAllowed(this._onboardingActive, this._onboardingDemoKind, inputKind);
   }
 
-  // "meeting" is never a demo kind, so this is simply "not during onboarding".
-  isMeetingInputAllowed() {
-    return this._isOnboardingInputAllowed("meeting");
-  }
-
-  // The one entry for starting a meeting by hand: the meeting hotkey, the pill's
-  // command menu, and the tray. Fails closed during onboarding and while a
-  // hotkey is being captured, like every hotkey slot.
-  async startManualMeeting() {
-    if (this.hotkeyManager.isInListeningMode() || !this.isMeetingInputAllowed()) return;
-    try {
-      await this.meetingDetectionEngine?.startManualMeeting();
-    } catch (error) {
-      debugLogger.error("Failed to start manual meeting", { error: error.message }, "meeting");
-    }
-  }
-
   // Visibility is part of "available": a ready pill that is merely hidden
   // (onboarding took the screen, a panel close hid it) cannot show a
   // recording, so counting it as a live surface would let dictation start
@@ -961,7 +907,6 @@ class WindowManager {
     this._dictationLifecycleState = nextState;
     this._dictationInputKind = nextInputKind;
     this._isDictatingToggle = isDictationRecording(nextState);
-    this.meetingDetectionEngine?.setUserRecording(this._isDictatingToggle);
     this._sendAgentDictationPillState();
     this.onDictationStateChanged?.();
   }
@@ -1597,7 +1542,6 @@ class WindowManager {
     this.hideDictationPanel();
     this.hideTranscriptionPreview();
     this.hideAgentDictationPill();
-    this.dismissMeetingNotification({ flushQueued: false });
   }
 
   beginOnboardingDemo(kind) {
@@ -1938,7 +1882,7 @@ class WindowManager {
     this._applyAgentDictationPillClickThrough(pillWindow, !interactive);
   }
 
-  // Like the dictation pill and meeting notification, the companion is
+  // Like the dictation pill, the companion is
   // click-through on macOS so its transparent bounds never swallow clicks
   // meant for the app beneath; hovering re-captures via IPC. Windows
   // forwarding is unreliable for floating panels and Linux ignores `forward`
@@ -2027,138 +1971,6 @@ class WindowManager {
     }
   }
 
-  async showMeetingNotification(promptData, { autoDismiss = true } = {}) {
-    if (this._onboardingActive) return false;
-    if (this.notificationWindow && !this.notificationWindow.isDestroyed()) {
-      const previousWindow = this.notificationWindow;
-      this.notificationWindow = null;
-      this._pendingNotificationData = null;
-      previousWindow.close();
-    }
-    this._notificationDismissTimer.cancel();
-    if (this._notificationReadyFallback) {
-      clearTimeout(this._notificationReadyFallback);
-      this._notificationReadyFallback = null;
-    }
-
-    const display = screen.getPrimaryDisplay();
-    const position = WindowPositionUtil.getNotificationPosition(display);
-
-    const win = new BrowserWindow({
-      ...NOTIFICATION_WINDOW_CONFIG,
-      ...position,
-    });
-    this.notificationWindow = win;
-
-    // "closed" fires asynchronously, so a replaced prompt's window emits it
-    // after the replacement already took over the reference and the countdown.
-    win.on("closed", () => {
-      if (this.notificationWindow !== win) return;
-      const closedDetectionId = this._pendingNotificationData?.detectionId ?? null;
-      this.notificationWindow = null;
-      this._pendingNotificationData = null;
-      this._notificationDismissTimer.cancel();
-      if (this._notificationReadyFallback) {
-        clearTimeout(this._notificationReadyFallback);
-        this._notificationReadyFallback = null;
-      }
-      if (closedDetectionId) {
-        this.meetingDetectionEngine?.handleDetectionNotificationClosed?.(closedDetectionId);
-      }
-    });
-
-    win.setContentProtection(true);
-
-    if (process.platform === "darwin") {
-      win.setIgnoreMouseEvents(true, { forward: true });
-    }
-
-    // Notifications must clear every other window, including our own floating
-    // dictation panel and assistant pill.
-    WindowPositionUtil.setupAlwaysOnTop(win, { level: "screen-saver" });
-
-    this._pendingNotificationData = promptData;
-
-    // Everything past the load addresses `win` directly: a replacement taking
-    // over mid-load must not have this prompt's data, countdown or force-show
-    // applied to its window.
-    try {
-      if (process.env.NODE_ENV === "development") {
-        await DevServerManager.waitForDevServer();
-        if (this.notificationWindow !== win) return false;
-        await win.loadURL(`${DevServerManager.DEV_SERVER_URL}?meeting-notification=true`);
-      } else {
-        const fileInfo = DevServerManager.getAppFilePath(false);
-        await win.loadFile(fileInfo.path, {
-          query: { ...fileInfo.query, "meeting-notification": "true" },
-        });
-      }
-    } catch (error) {
-      // A load aborted by our own replacement or dismissal is not a failure —
-      // but the caller must still learn the notification never appeared.
-      if (this.notificationWindow !== win) return false;
-      this.dismissMeetingNotification();
-      throw error;
-    }
-    if (this.notificationWindow !== win) return false;
-    if (this._onboardingActive) {
-      this.dismissMeetingNotification();
-      return false;
-    }
-
-    const readyFallback = setTimeout(() => {
-      if (this._notificationReadyFallback !== readyFallback) return;
-      this._notificationReadyFallback = null;
-      if (this._onboardingActive || this.notificationWindow !== win || win.isDestroyed()) return;
-      debugLogger.warn("Notification renderer did not signal ready, force-showing", {}, "meeting");
-      win.webContents.send("meeting-notification-data", promptData);
-      win.showInactive();
-    }, 3000);
-    this._notificationReadyFallback = readyFallback;
-
-    if (autoDismiss) {
-      this._notificationDismissTimer.start(getNotificationTimeoutMs(promptData.source));
-    }
-    return true;
-  }
-
-  // Only the window that loaded the prompt may reveal it: a stale window's late
-  // "ready" must not clear the fallback that would force-show its replacement.
-  showNotificationWindow(ownerWebContents) {
-    if (this._onboardingActive) {
-      this.dismissMeetingNotification();
-      return;
-    }
-    const win = this.notificationWindow;
-    if (!win || win.isDestroyed() || (ownerWebContents && win.webContents !== ownerWebContents)) {
-      return;
-    }
-
-    if (this._notificationReadyFallback) {
-      clearTimeout(this._notificationReadyFallback);
-      this._notificationReadyFallback = null;
-    }
-    win.showInactive();
-  }
-
-  dismissMeetingNotification({ notifyEngine = true, flushQueued = true } = {}) {
-    const notification = this._pendingNotificationData;
-    this._pendingNotificationData = null;
-    if (this._notificationReadyFallback) {
-      clearTimeout(this._notificationReadyFallback);
-      this._notificationReadyFallback = null;
-    }
-    this._notificationDismissTimer.cancel();
-    const win = this.notificationWindow;
-    this.notificationWindow = null;
-    if (win && !win.isDestroyed()) win.close();
-    if (notifyEngine && notification?.detectionId) {
-      this.meetingDetectionEngine?.handleDetectionNotificationClosed?.(notification.detectionId, {
-        flushQueued,
-      });
-    }
-  }
-
   sendToControlPanel(channel, data) {
     const win = this.controlPanelWindow;
     if (!win || win.isDestroyed()) return;
@@ -2171,18 +1983,6 @@ class WindowManager {
     }
   }
 
-  async queueMeetingNoteNavigation(payload) {
-    this._pendingMeetingNoteNavigation = payload;
-    await this.createControlPanelWindow();
-    this.sendToControlPanel("meeting-note-navigation-pending");
-  }
-
-  consumePendingMeetingNoteNavigation() {
-    const payload = this._pendingMeetingNoteNavigation;
-    this._pendingMeetingNoteNavigation = null;
-    return payload;
-  }
-
   async queueNoteNavigation(payload) {
     this._pendingNoteNavigation = payload;
     await this.createControlPanelWindow();
@@ -2193,35 +1993,6 @@ class WindowManager {
     const payload = this._pendingNoteNavigation;
     this._pendingNoteNavigation = null;
     return payload;
-  }
-
-  snapControlPanelToMeetingMode() {
-    const win = this.controlPanelWindow;
-    if (!win || win.isDestroyed()) return;
-    this._preMeetingBounds = win.getBounds();
-    const display = screen.getPrimaryDisplay();
-    const workArea = display.workArea;
-    const width = Math.round(workArea.width / 3);
-    win.setBounds({
-      x: workArea.x + workArea.width - width,
-      y: workArea.y,
-      width,
-      height: workArea.height,
-    });
-    win.focus();
-  }
-
-  restoreControlPanelFromMeetingMode() {
-    const win = this.controlPanelWindow;
-    if (!win || win.isDestroyed()) return;
-    if (this._preMeetingBounds) {
-      win.setBounds(this._preMeetingBounds);
-      this._preMeetingBounds = null;
-    } else {
-      const { width, height } = CONTROL_PANEL_CONFIG;
-      win.setSize(width, height);
-      win.center();
-    }
   }
 
   refreshLocalizedUi() {
